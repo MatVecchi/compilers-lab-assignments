@@ -32,18 +32,24 @@ namespace
         if (n <= 0)
             return -2;
 
-        log_value = cmath::floor(std::log2(n));
-        if (std::fmod(log_value, 1) == 0)
+        double val = std::log2(n); 
+        if (std::fmod(val, 1) == 0){
+            log_value = val;
             return 0;
+        }
 
-        log_value = std::log2(n + 1);
-        if (std::fmod(log_value, 1) == 0)
+        val = std::log2(n + 1);
+        if (std::fmod(val, 1) == 0){
+            log_value = val;
             return 1;
-
-        log_value = std::log2(n - 1);
-        if (std::fmod(log_value, 1) == 0)
+        }
+        
+        val = std::log2(n - 1);
+        if (std::fmod(val, 1) == 0){
+            log_value = val;
             return -1;
-
+        }
+        
         return -2;
     }
 
@@ -75,7 +81,7 @@ namespace
                         if (BinOp->getOpcode() == Instruction::Mul || BinOp->getOpcode() == Instruction::SDiv)
                         {
 
-                            auto *registerOperand;
+                            Value *registerOperand;
                             ConstantInt *constantValue;
 
                             if (constantValue = dyn_cast<ConstantInt>(BinOp->getOperand(0)))
@@ -98,15 +104,14 @@ namespace
                             if (result == -2 || (BinOp->getOpcode() == Instruction::SDiv && result != 0))
                                 continue;
 
-                            Instruction *NewInst = BinOp->getOpcode() == Instruction::SDiv ? BinaryOperator::CreateShr(registerOperand, val) : BinaryOperator::CreateShl(registerOperand, val);
-
+                            Instruction *NewInst = BinOp->getOpcode() == Instruction::SDiv ? BinaryOperator::CreateAShr(registerOperand, val) : BinaryOperator::CreateShl(registerOperand, val);
                             NewInst->insertBefore(BinOp);
-
+                            errs() << result << "\n";
                             if (result != 0)
                             {
-                                Instruction *NewSubAdd = result == 1 ? BinaryOperator::CreateAdd(NewInst, registerOperand) : BinaryOperator::CreateSub(NewInst, registerOperand);
+                                Instruction *NewSubAdd = result != 1 ? BinaryOperator::CreateAdd(NewInst, registerOperand) : BinaryOperator::CreateSub(NewInst, registerOperand);
                                 NewSubAdd->insertAfter(NewInst); // subito dopo lo shift
-
+                                errs() << "prova";
                                 //  Sostituisci tutti gli usi del vecchio BinOp
                                 BinOp->replaceAllUsesWith(NewSubAdd);
                             }
@@ -116,20 +121,22 @@ namespace
                         }
                     }
 
-                    for (auto *I : toDelete)
-                        I->removeFromParent();
                 }
 
-                return PreservedAnalyses::all();
+                for (auto *I : toDelete)
+                        I->removeFromParent();
             }
 
-            // Without isRequired returning true, this pass will be skipped for functions
-            // decorated with the optnone LLVM attribute. Note that clang -O0 decorates
-            // all functions with optnone.
-            static bool isRequired() { return true; }
+            return PreservedAnalyses::all();
         };
 
-    } // namespace
+        // Without isRequired returning true, this pass will be skipped for functions
+        // decorated with the optnone LLVM attribute. Note that clang -O0 decorates
+        // all functions with optnone.
+        static bool isRequired() { return true; }
+    };
+} 
+// namespace
 
     //-----------------------------------------------------------------------------
     // New PM Registration
@@ -161,3 +168,4 @@ namespace
     {
         return getStrRedOptsPassPluginInfo();
     }
+
