@@ -1,0 +1,1 @@
+/usr/bin/c++ -dynamiclib -Wl,-headerpad_max_install_names -L/usr/local/opt/llvm@19/lib -L/usr/local/opt/llvm@19/lib -L/usr/local/opt/llvm@19/lib -L/usr/local/opt/llvm@19/lib -o libStrRedOptsPass.dylib -install_name @rpath/libStrRedOptsPass.dylib CMakeFiles/StrRedOptsPass.dir/StrRedOpts.cpp.o  -undefined dynamic_lookup

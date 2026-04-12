@@ -1,0 +1,10 @@
+/Users/JN/Desktop/uni/comp_llvm/ASS_1/BUILD/CMakeFiles/intrinsics_gen.dir
+/Users/JN/Desktop/uni/comp_llvm/ASS_1/BUILD/CMakeFiles/omp_gen.dir
+/Users/JN/Desktop/uni/comp_llvm/ASS_1/BUILD/CMakeFiles/acc_gen.dir
+/Users/JN/Desktop/uni/comp_llvm/ASS_1/BUILD/CMakeFiles/ARMTargetParserTableGen.dir
+/Users/JN/Desktop/uni/comp_llvm/ASS_1/BUILD/CMakeFiles/AArch64TargetParserTableGen.dir
+/Users/JN/Desktop/uni/comp_llvm/ASS_1/BUILD/CMakeFiles/RISCVTargetParserTableGen.dir
+/Users/JN/Desktop/uni/comp_llvm/ASS_1/BUILD/CMakeFiles/AlgebricIdOptsPass.dir
+/Users/JN/Desktop/uni/comp_llvm/ASS_1/BUILD/CMakeFiles/StrRedOptsPass.dir
+/Users/JN/Desktop/uni/comp_llvm/ASS_1/BUILD/CMakeFiles/edit_cache.dir
+/Users/JN/Desktop/uni/comp_llvm/ASS_1/BUILD/CMakeFiles/rebuild_cache.dir
