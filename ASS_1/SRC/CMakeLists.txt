@@ -35,10 +35,13 @@ endif()
 #===============================================================================
 add_library(AlgebricIdOptsPass SHARED AlgebricIdOpts.cpp)
 add_library(StrRedOptsPass SHARED StrRedOpts.cpp)
+add_library(MultiInstOptPass SHARED MultiInstOpt.cpp)
 
 # Allow undefined symbols in shared objects on Darwin (this is the default
 # behaviour on Linux)
 target_link_libraries(AlgebricIdOptsPass
   "$<$<PLATFORM_ID:Darwin>:-undefined dynamic_lookup>")
 target_link_libraries(StrRedOptsPass
+  "$<$<PLATFORM_ID:Darwin>:-undefined dynamic_lookup>")
+target_link_libraries(MultiInstOptPass
   "$<$<PLATFORM_ID:Darwin>:-undefined dynamic_lookup>")
