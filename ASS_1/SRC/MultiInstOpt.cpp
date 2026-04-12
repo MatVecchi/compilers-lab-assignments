@@ -27,23 +27,27 @@ namespace
         BOTH
     };
 
-    RegisterCases registerAndOperand(Instruction &I, Instruction* &inst, ConstantInt* &constantValue, Instruction* &inst2){
+    RegisterCases registerAndOperand(Instruction &I, Value* &inst, ConstantInt* &constantValue, Value* &inst2){
         auto *BinOp = dyn_cast<BinaryOperator>(&I);
         if (!BinOp || (BinOp->getOpcode() != Instruction::Mul && BinOp->getOpcode() != Instruction::SDiv && BinOp->getOpcode() != Instruction::Add && BinOp->getOpcode() != Instruction::Sub))
             return RegisterCases::NEITHER;
 
-        if (constantValue = dyn_cast<ConstantInt>(BinOp->getOperand(0)))
+        if ( auto *C = dyn_cast<ConstantInt>(BinOp->getOperand(0)))
         {
+            constantValue = C;
             if (dyn_cast<ConstantInt>(BinOp->getOperand(1)))
                 return RegisterCases::NEITHER;
-            inst = dyn_cast<Instruction>(BinOp->getOperand(1));
+            inst = dyn_cast<Value>(BinOp->getOperand(1));
         }
-        else if (constantValue = dyn_cast<ConstantInt>(BinOp->getOperand(1)))
-            inst = dyn_cast<Instruction>(BinOp->getOperand(0));
-        else
-            inst = dyn_cast<Instruction>(BinOp->getOperand(0)); // Supponendo per semplicità che l'istruzione da espandere sia sempre la prima
-            inst2 = dyn_cast<Instruction>(BinOp->getOperand(1));
+        else if (auto *C = dyn_cast<ConstantInt>(BinOp->getOperand(1))){
+            constantValue = C;
+            inst = dyn_cast<Value>(BinOp->getOperand(0));
+        }
+        else{
+            inst = dyn_cast<Value>(BinOp->getOperand(0)); // Supponendo per semplicità che l'istruzione da espandere sia sempre la prima
+            inst2 = dyn_cast<Value>(BinOp->getOperand(1));
             return RegisterCases::BOTH;
+        }
         return RegisterCases::ONE;
     }
 
@@ -58,7 +62,7 @@ namespace
         return val1->getSExtValue() == val2->getSExtValue(); // Si suppone che sia già stata applicata la Algebric Semplification
     }
 
-    bool isOpposite(Instruction* op1, Instruction* op2, Instruction* val1, Instruction* val2){
+    bool isOpposite(Instruction* op1, Instruction* op2, Value* val1, Value* val2){
          if(!(op1->getOpcode() == Instruction::Mul && op2->getOpcode() == Instruction::SDiv || 
         op1->getOpcode() == Instruction::SDiv && op2->getOpcode() == Instruction::Mul || 
         op1->getOpcode() == Instruction::Add && op2->getOpcode() == Instruction::Sub ||
@@ -88,52 +92,70 @@ namespace
                 {
                     Instruction &I = *instr_i;
 
-                    Instruction *registerOperand;
-                    Instruction *secondRegisterOperand;
-                    ConstantInt *constantValue;
+                    Value *registerOperand = nullptr;
+                    Value *secondRegisterOperand = nullptr;
+                    ConstantInt *constantValue = nullptr;
                     RegisterCases caseResult = registerAndOperand(I, registerOperand, constantValue, secondRegisterOperand);
+                    
+                    errs() << I << "\n";
+                    errs() << registerOperand << "\n";
+                    errs() << secondRegisterOperand << "\n";
+                    errs() << constantValue << "\n";
+                    errs() << static_cast<int>(caseResult) << "\n";
+
                     if(caseResult == RegisterCases::NEITHER)
                         continue;
 
-                    if(caseResult == RegisterCases::BOTH){
-                        Instruction *nestedRegisterOperand;
-                        Instruction *nestedSecondRegisterOperand;
-                        ConstantInt *nestedConstantValue;
-                        RegisterCases nestedCaseResult = registerAndOperand(*registerOperand, nestedRegisterOperand, nestedConstantValue, nestedSecondRegisterOperand);
+                    auto *nestedInst = dyn_cast<Instruction>(registerOperand);
+                    if(!nestedInst) continue; 
 
+                    if(caseResult == RegisterCases::BOTH){
+                        Value *nestedRegisterOperand = nullptr;
+                        Value *nestedSecondRegisterOperand = nullptr;
+                        ConstantInt *nestedConstantValue = nullptr;
+                        RegisterCases nestedCaseResult = registerAndOperand(*nestedInst, nestedRegisterOperand, nestedConstantValue, nestedSecondRegisterOperand);
+                        
+                        errs() << nestedRegisterOperand << "\n";
+                        errs() << nestedConstantValue << "\n";
+                        errs() << nestedSecondRegisterOperand << "\n";
+                        
                         if(nestedCaseResult != RegisterCases::BOTH)
                             continue;
 
-                        if(!isOpposite(&I, registerOperand, secondRegisterOperand, nestedSecondRegisterOperand))
+                        if(!isOpposite(&I, nestedInst, secondRegisterOperand, nestedSecondRegisterOperand))
                             continue;
 
                         I.replaceAllUsesWith(nestedRegisterOperand);
                         toDelete.push_back(&I);
                     } else {
-                        Instruction *nestedRegisterOperand;
-                        Instruction *nestedSecondRegisterOperand;
-                        ConstantInt *nestedConstantValue;
-                        RegisterCases nestedCaseResult = registerAndOperand(*registerOperand, nestedRegisterOperand, nestedConstantValue, nestedSecondRegisterOperand);
-
+                        Value *nestedRegisterOperand = nullptr;
+                        Value *nestedSecondRegisterOperand = nullptr;
+                        ConstantInt *nestedConstantValue = nullptr;
+                        RegisterCases nestedCaseResult = registerAndOperand(*nestedInst, nestedRegisterOperand, nestedConstantValue, nestedSecondRegisterOperand);
+                        
+                        errs() << nestedRegisterOperand << "\n";
+                        errs() << nestedConstantValue << "\n";
+                        errs() << nestedSecondRegisterOperand << "\n";
+                        
                         if(nestedCaseResult == RegisterCases::NEITHER)
                             continue;
 
                         if(nestedCaseResult == RegisterCases::BOTH){
                             continue;
                         } else {
-                            if(!isOpposite(&I, registerOperand, constantValue, nestedConstantValue))
+                            if(!isOpposite(&I, nestedInst, constantValue, nestedConstantValue))
                                 continue;
 
-                            I.replaceAllUsesWith(nestedConstantValue);
+                            I.replaceAllUsesWith(nestedRegisterOperand);
                             toDelete.push_back(&I);
                         }
                     }
 
-                    
+                    errs() << "\n\n";
                 }
 
                 for (auto *I : toDelete)
-                        I->removeFromParent();
+                    I->eraseFromParent();
             }
 
             return PreservedAnalyses::all();
