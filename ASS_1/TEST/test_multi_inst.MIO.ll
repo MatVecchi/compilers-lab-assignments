@@ -1,27 +1,16 @@
-; ModuleID = 'test_somma.O0.ll'
-source_filename = "test_somma.c"
+; ModuleID = 'test_multi_inst.O0.ll'
+source_filename = "test_multi_inst.c"
 target datalayout = "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
 target triple = "x86_64-apple-macosx13.0.0"
 
-@.str = private unnamed_addr constant [10 x i8] c"Somma: %d\00", align 1
-@.str.1 = private unnamed_addr constant [8 x i8] c"Mul: %d\00", align 1
-@.str.2 = private unnamed_addr constant [8 x i8] c"Sub: %d\00", align 1
-@.str.3 = private unnamed_addr constant [8 x i8] c"Div: %d\00", align 1
+@.str = private unnamed_addr constant [7 x i8] c"%d %d\0A\00", align 1
 
 ; Function Attrs: noinline nounwind ssp uwtable
-define i32 @foo(i32 noundef %0, i32 noundef %1) #0 {
-  %3 = add nsw i32 %0, 0
-  %4 = add nsw i32 0, %1
-  %5 = mul nsw i32 %0, 1
-  %6 = mul nsw i32 1, %1
-  %7 = sub nsw i32 %0, 0
-  %8 = sdiv i32 %1, 1
-  %9 = add nsw i32 %3, %4
-  %10 = mul nsw i32 %5, %6
-  %11 = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %9)
-  %12 = call i32 (ptr, ...) @printf(ptr noundef @.str.1, i32 noundef %10)
-  %13 = call i32 (ptr, ...) @printf(ptr noundef @.str.2, i32 noundef %7)
-  %14 = call i32 (ptr, ...) @printf(ptr noundef @.str.3, i32 noundef %8)
+define i32 @foo(i32 noundef %0, i32 noundef %1, i32 noundef %2) #0 {
+  %4 = add nsw i32 %1, %0
+  %5 = mul nsw i32 %2, 5
+  %6 = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %4, i32 noundef %1)
+  %7 = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %5, i32 noundef %2)
   ret i32 0
 }
 

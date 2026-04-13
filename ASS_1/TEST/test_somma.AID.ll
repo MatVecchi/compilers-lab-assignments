@@ -5,6 +5,8 @@ target triple = "x86_64-apple-macosx13.0.0"
 
 @.str = private unnamed_addr constant [10 x i8] c"Somma: %d\00", align 1
 @.str.1 = private unnamed_addr constant [8 x i8] c"Mul: %d\00", align 1
+@.str.2 = private unnamed_addr constant [8 x i8] c"Sub: %d\00", align 1
+@.str.3 = private unnamed_addr constant [8 x i8] c"Div: %d\00", align 1
 
 ; Function Attrs: noinline nounwind ssp uwtable
 define i32 @foo(i32 noundef %0, i32 noundef %1) #0 {
@@ -12,6 +14,8 @@ define i32 @foo(i32 noundef %0, i32 noundef %1) #0 {
   %4 = mul nsw i32 %0, %1
   %5 = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %3)
   %6 = call i32 (ptr, ...) @printf(ptr noundef @.str.1, i32 noundef %4)
+  %7 = call i32 (ptr, ...) @printf(ptr noundef @.str.2, i32 noundef %0)
+  %8 = call i32 (ptr, ...) @printf(ptr noundef @.str.3, i32 noundef %1)
   ret i32 0
 }
 

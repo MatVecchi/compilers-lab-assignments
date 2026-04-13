@@ -15,12 +15,38 @@
 using namespace llvm;
 
 //-----------------------------------------------------------------------------
-// TestPass implementation
+// AlgebricIdOptsPass implementation
 //-----------------------------------------------------------------------------
-// No need to expose the internals of the pass to the outside world - keep
-// everything in an anonymous namespace.
+// è un passo che verifica l'identitò algebrica.
+// Seguentemente sono mostrate gli scenari ottimizzabili e la relativa trasformazione.
+/*
+  x + 0 == 0 + x --> x
+  x - 0 --> x
+  x * 1 == 1 * x --> x
+  x / 1 --> x
+*/
 namespace {
 
+/*
+isOpt ritorna true nel caso in cui l'istruzione passata sia ottimizzabile dal passo, false se non lo è.
+Il criterio di calcolo è il seguente:
+Se è una somma è ottimizzabile se il valore costante è == 0 (non importa la posizione)
+Se è una moltiplicazione è ottimizzabile se il valore costante è == 1 (non importa la posizione)
+Se è una sottrazione è ottimizzabile se il valore costante è == 0 ma solo come secondo operando
+Se è una divisione è ottimizzabile se il valore costante è == 1 ma solo come secondo operando
+*/
+bool isOpt(BinaryOperator *BinOp, ConstantInt* constantValue, Value* registerValue, bool firstOperandRegister){
+  auto binCode = BinOp->getOpcode();
+  if(binCode == Instruction::Add && constantValue->isZero())
+    return true;
+  if(binCode == Instruction::Mul && constantValue->isOne())
+    return true;
+  if(binCode == Instruction::Sub && constantValue->isZero() && firstOperandRegister)
+    return true;
+  if(binCode == Instruction::SDiv && constantValue->isOne() && firstOperandRegister)
+    return true;
+  return false;
+}
 
 // New PM implementation
 struct AlgebricIdOpts: PassInfoMixin<AlgebricIdOpts> {
@@ -40,68 +66,56 @@ struct AlgebricIdOpts: PassInfoMixin<AlgebricIdOpts> {
           // Verifico se l'istruzione considerata è una operazione binaria tramite un dyn_cast
           if( auto *BinOp = dyn_cast<BinaryOperator>(&Instr)  ){
             // Nel caso di oeprazione binaria, verifico la tipologia di operazione, se ADD o MUL
-            if( BinOp->getOpcode() == Instruction::Add || BinOp->getOpcode() == Instruction::FAdd){
+            
+            Value *operand_1 = BinOp->getOperand(0);
+            Value *operand_2 = BinOp->getOperand(1);
 
-              /* Nel caso sia una ADD, devo verificare se uno dei due operandi è un valore costante uguale a 0
-              e che, contemporaneamente, l'altro operando sia un valore non costante*/
+            ConstantInt* constantValue = nullptr; // Operando costante nella operazione
+            Value* registerValue = nullptr; // Operando non costante nella operazione
+            bool firstOperandRegister = false; // flag che indica la posizione dell'operando non costante
 
-              Value *operand_1 = BinOp->getOperand(0);
-              Value *operand_2 = BinOp->getOperand(1);
-              
-              //Verifico che il primo operando sia costante con un dyn_cast a ConstantInt
-              if( auto *constant_value = dyn_cast<ConstantInt>(operand_1)){
-                //Se il primo operando è costnate, verifico che esso sia uguale a 0 e che il secondo operando non sia una costante
-                if(constant_value->isZero() && !dyn_cast<ConstantInt>(operand_2)){
-                  /* Se entrambi i controlli vanno a buon fine, ho trovato una Algebric Identify in una somma
-                  Rimpiazzo tutti gli USES della istruzione che rappresenta la Algebric identify direttamente con l'operando 
-                  non costante (ex: 0 + x --> x).
-                  Successivamente marco la istruzione da rimuovere inserendola in un apposito vettore */
-                  BinOp->replaceAllUsesWith(operand_2);
-                  toDelete.push_back(BinOp);
-                }
-                // Controllo invece che il secondo operando sia costante con un dyn_cast ad ConstantInt
-              }else if( auto *constant_value = dyn_cast<ConstantInt>(operand_2) ){
-                // Verifico poi che il valore costante sia effettivamente uguale a 0 e che il primo operando non sia un valore costante
-                if(constant_value->isZero() && !dyn_cast<ConstantInt>(operand_1) ){
-                  /* Anche in questo caso ho trovato una Algebric Identify, dove dovrò sostituire a tutti gli uses della istruzione direttamente l'operando (ex: x + 0 --> x) non costante
-                  e indicare la BinOp trovata come istruzione da rimuovere, inserendola nell'apposito vettore*/
-                  BinOp->replaceAllUsesWith(operand_1);
-                  toDelete.push_back(BinOp);
-                }
-              }
-
-            // Nel caso in cui non sia una somma, verifico se si tratti di una moltiplicazione
-            }else if( BinOp->getOpcode() == Instruction::Mul || BinOp->getOpcode() == Instruction::FMul){
-              Value *operand_1 = BinOp->getOperand(0);
-              Value *operand_2 = BinOp->getOperand(1);
-
-              /* Nel caso di una moltiplicazione, devo verificare che uno dei due operandi sia un valore costante uguale ad 1
-              e che l'altro operando non sia un valore costante.
-              (ex: x * 1 oppure 1 * x)*/
-
-              //Verifico con dyn_cast che il primo operando sia un ConstantInt
-              if( auto *constant_value = dyn_cast<ConstantInt>(operand_1)){
-                // Verifico in seguito che il secondo operando non sia costante e che il valore costante relativo al primo operando sia 1
-                if(constant_value->isOne() && !dyn_cast<ConstantInt>(operand_2)){
-                  /* Se entrambe le condizioni sono soddisfatte, allora significa che ho trovato una Algebric Identify.
-                  Devo quindi sostituire tutti gli utilizi della BinOp direttamente con l'operando non costante (ex: 1 * x --> x)
-                  e marcare l'istruzione come "da eliminare" inserendola nell'apposito vettore */
-                  BinOp->replaceAllUsesWith(operand_2);
-                  toDelete.push_back(BinOp);
-                }
-
-                // Se il primo operando non è costante, verifico che lo sia il secondo con un dyn_cast a ConstantInt
-              }else if( auto *constant_value = dyn_cast<ConstantInt>(operand_2) ){
-                // Verifico a sua volta che il valore costante sia uguale ad 1 e che il primo operando non sia costante
-                if(constant_value->isOne() && !dyn_cast<ConstantInt>(operand_1) ){
-                  /* Anche in questo casto ho trovato una ALgebric Identify, dove dovrò sostituire a tutti
-                  li uses della BinOp direttaemnte l'operando non costante (in questo caso il primo) (ex: x * 1-->x)
-                  marcando poi l'istruzione trovata come "da eliminare", inserendola nel realtivo vettore */
-                  BinOp->replaceAllUsesWith(operand_1);
-                  toDelete.push_back(BinOp);
-                }
-              }
+            errs() << Instr << "\n";
+            /*
+            Verifico con un Dynamic cast quale dei due operandi è costante.
+            Quello costante lo inserisco dentro ConstantValue
+            Mentre quello non costante lo inserisco dentro registerValue
+            In base alla posizione dell'operando non costante setto a true|false
+            il valore del flag: firstOperandRegister
+            Che servirà per capire quando sono ottimizzabili anche le sottrazioni e divisioni
+            */
+            if( auto *CV = dyn_cast<ConstantInt>(operand_1)){
+              if( !dyn_cast<ConstantInt>(operand_2)){
+                constantValue = CV;
+                registerValue = operand_2;
+                firstOperandRegister = false;
+              }else
+                continue; // Passo alla prossima istruzione perchè sono entrambi costanti
             }
+            else if( auto *CV = dyn_cast<ConstantInt>(operand_2)){
+              if( !dyn_cast<ConstantInt>(operand_1)){
+                constantValue = CV;
+                registerValue = operand_1;
+                firstOperandRegister = true;
+              }else
+                continue; // Passo alla prossima istruzione perchè sono entrambi costanti
+            }else continue; // Entrambi non costanti --> passo alla prossima istruzione
+
+
+            
+            errs() << registerValue->getName() << "\n";
+            errs() << constantValue->getSExtValue() << "\n";
+
+            //Verifico se è ottimizzabile con la relativa funzione
+            if( !isOpt(BinOp, constantValue, registerValue, firstOperandRegister))
+              continue; //Continuo se non è ottimizzabile
+            
+            errs() << "Opt done"<<"\n";
+
+            //Rimpiazzo tutti gli Uses della BinOp con il relativo registro 
+            BinOp->replaceAllUsesWith(registerValue);
+
+            //Marco l'istruzione selezionata da eliminare
+            toDelete.push_back(BinOp);
           }
 
         }

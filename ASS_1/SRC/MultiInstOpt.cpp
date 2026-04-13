@@ -15,18 +15,40 @@
 using namespace llvm;
 
 //-----------------------------------------------------------------------------
-// TestPass implementation
+// MultiInstOptPass implementation
 //-----------------------------------------------------------------------------
-// No need to expose the internals of the pass to the outside world - keep
-// everything in an anonymous namespace.
+/*
+    Passo che verifica la multi-instruction optimization.
+    I seguenti esempi indicano gli scenari in cui può avvenire la trasformazione adottata
+    dal passo:
+
+    con valori costanti (vale la proprietà commutativa) (16 è d'esempio):
+    (x + 16) - 16 --> x
+    (x - 16) + 16 --> x
+    (x * 16) / 16 --> x
+    (x / 16) * 16 --> x
+
+    con operandi non costanti (si assume che si espanda sempre il primo operando non costante per semplciità):
+    (x + y) - y --> x
+    (x - y) + y --> x
+    (x * y) / y --> x
+    (x / y) * y --> x
+*/
 namespace
 {
+    //Enumerazione utilizzata per capire quanti operandi non costanti sono stati trovati 
     enum class RegisterCases{
         NEITHER,
         ONE,
         BOTH
     };
 
+    // Serve per poter capire quali sono e quanti sono gli operandi costanti e non costanti
+    /*
+        Si verifica se è una binary operation, e in tal caso si esegue il controllo 
+        con dei dynamic cast si verifica quanti e quali operandi sono costanti e non costanti, 
+        facendo ritornare il relativo valore
+    */
     RegisterCases registerAndOperand(Instruction &I, Value* &inst, ConstantInt* &constantValue, Value* &inst2){
         auto *BinOp = dyn_cast<BinaryOperator>(&I);
         if (!BinOp || (BinOp->getOpcode() != Instruction::Mul && BinOp->getOpcode() != Instruction::SDiv && BinOp->getOpcode() != Instruction::Add && BinOp->getOpcode() != Instruction::Sub))
@@ -51,6 +73,12 @@ namespace
         return RegisterCases::ONE;
     }
 
+    /*
+        isOppsite è una funzione che ritorna true o false se l'istruzione passata (e la relativa innestata) sono ottimizzabili
+        Funzione che verifica quando le due operazioni (esterna ed interna) sono opposte.
+        Si verifica inoltre che i relativi valori utilizzati siano uguali e in tal caso si ritorna true.
+        False altrimenti
+    */
     bool isOpposite(Instruction* op1, Instruction* op2, ConstantInt* val1, ConstantInt* val2){
         if(!(op1->getOpcode() == Instruction::Mul && op2->getOpcode() == Instruction::SDiv || 
         op1->getOpcode() == Instruction::SDiv && op2->getOpcode() == Instruction::Mul || 
@@ -92,9 +120,10 @@ namespace
                 {
                     Instruction &I = *instr_i;
 
-                    Value *registerOperand = nullptr;
-                    Value *secondRegisterOperand = nullptr;
-                    ConstantInt *constantValue = nullptr;
+                    // Si analizza prima l'istruzione esterna
+                    Value *registerOperand = nullptr;  //oeprando non costante esterno
+                    Value *secondRegisterOperand = nullptr; //operando non costante esterno (può rimanere null)
+                    ConstantInt *constantValue = nullptr; //operando costante esterno (può rimaenre null)
                     RegisterCases caseResult = registerAndOperand(I, registerOperand, constantValue, secondRegisterOperand);
                     
                     errs() << I << "\n";
@@ -103,34 +132,41 @@ namespace
                     errs() << constantValue << "\n";
                     errs() << static_cast<int>(caseResult) << "\n";
 
+                    //Se sono entrambi costanti --> passo alla prossima istruzione
                     if(caseResult == RegisterCases::NEITHER)
                         continue;
 
+                    //Altrimenti verifico l'istruzione interna (nested) in corrispondenza dell'oeprando non costante
+                    // Se sono entrambi non costanti si espande solaemnte il primo (per semplciità)
                     auto *nestedInst = dyn_cast<Instruction>(registerOperand);
-                    if(!nestedInst) continue; 
+                    if(!nestedInst) continue; // Se non è una istruzione allora non si può semplificare
 
-                    if(caseResult == RegisterCases::BOTH){
-                        Value *nestedRegisterOperand = nullptr;
-                        Value *nestedSecondRegisterOperand = nullptr;
-                        ConstantInt *nestedConstantValue = nullptr;
+                    if(caseResult == RegisterCases::BOTH){ //Se sono entrambi non costanti espando il primo operando
+                        Value *nestedRegisterOperand = nullptr; //primo operando nested non costante
+                        Value *nestedSecondRegisterOperand = nullptr; //secondo operando nested non costante (possibilmente nullo)
+                        ConstantInt *nestedConstantValue = nullptr; // secondo oeprando nested costante (possibilmente nullo)
                         RegisterCases nestedCaseResult = registerAndOperand(*nestedInst, nestedRegisterOperand, nestedConstantValue, nestedSecondRegisterOperand);
                         
                         errs() << nestedRegisterOperand << "\n";
                         errs() << nestedConstantValue << "\n";
                         errs() << nestedSecondRegisterOperand << "\n";
                         
+                        // In questo caso anche nella nested Instruction devono essere entrambi non costanti per essere ottimizzati
                         if(nestedCaseResult != RegisterCases::BOTH)
                             continue;
 
+                        //Verifico la possibilità di ottimizzazione
                         if(!isOpposite(&I, nestedInst, secondRegisterOperand, nestedSecondRegisterOperand))
                             continue;
 
+                        // rimpiazzio gli uses della istruzione con il primo operando della nested instruction
                         I.replaceAllUsesWith(nestedRegisterOperand);
                         toDelete.push_back(&I);
-                    } else {
-                        Value *nestedRegisterOperand = nullptr;
-                        Value *nestedSecondRegisterOperand = nullptr;
-                        ConstantInt *nestedConstantValue = nullptr;
+
+                    } else { //Se solo uno è non costante --> lo esapndo
+                        Value *nestedRegisterOperand = nullptr; // primo operando nested non costante 
+                        Value *nestedSecondRegisterOperand = nullptr; //secondo operando nested non costante (può essere null)
+                        ConstantInt *nestedConstantValue = nullptr; // secondo operando nested costante (può essere null)
                         RegisterCases nestedCaseResult = registerAndOperand(*nestedInst, nestedRegisterOperand, nestedConstantValue, nestedSecondRegisterOperand);
                         
                         errs() << nestedRegisterOperand << "\n";
@@ -142,11 +178,14 @@ namespace
 
                         if(nestedCaseResult == RegisterCases::BOTH){
                             continue;
-                        } else {
-                            if(!isOpposite(&I, nestedInst, constantValue, nestedConstantValue))
+                        } else { //è possibile ottimizzare solo se anche nella nested c'è solamente un operando non costante
+                            if(!isOpposite(&I, nestedInst, constantValue, nestedConstantValue)) //verifico la possibilità di ottimizzare
                                 continue;
 
+                            //rimpiazzio gli uses di BinOp con il primo operando nested
                             I.replaceAllUsesWith(nestedRegisterOperand);
+
+                            //marco l'istruzione da eliminare
                             toDelete.push_back(&I);
                         }
                     }
