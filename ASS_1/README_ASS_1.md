@@ -33,14 +33,14 @@ In entrambi i casi deve esistere un operando costante ed un operando non costant
 
 * **Identità gestite:**
     * MOLTIPLICAZIONE (vale la proprietà commutativa):
-    * $x * 16 --> $x << 4
-    * $x * 7 --> ($x << 2) + ( $x << 1 ) + $x
-    * $x * 1 --> $x
+    * $x * 16 --> x << 4
+    * $x * 7 --> (x << 2) + ( x << 1 ) + x
+    * $x * 1 --> x
     * $x * 0 --> 0
 
     * DIVISIONE (il valore costante deve essere al denominatore):
-    * $x / 1 --> $x
-    * $x / 16 --> $x >> 4
+    * $x / 1 --> x
+    * $x / 16 --> x >> 4
     
 * **Identificazione delle operazioni binarie**: Per ogni istruzione di ogni Basic Block, viene verificato se si tratta di un'operazione binaria tramite un `dyn_cast<BinaryOperator>`. In caso positivo, viene controllata la tipologia di operazione ( **MUL**, **SDiv**).
 
@@ -77,16 +77,16 @@ Nel momento in cui viene trovata una operazione ottimizzabile, viene sostituita 
 
 * **Identità gestite:**
   * Scenari con valori costanti (vale la proprietà commutativa) (16 è d'esempio):
-  * ($x + 16) - 16 --> $x
-  * ($x - 16) + 16 --> $x
-  * ($x * 16) / 16 --> $x
-  * ($x / 16) * 16 --> $x
+  * ($x + 16) - 16 --> x
+  * ($x - 16) + 16 --> x
+  * ($x * 16) / 16 --> x
+  * ($x / 16) * 16 --> x
 
   * Scenari con operandi non costanti (si assume che si espanda sempre il primo operando non costante per semplicità):
-  * ($x + $y) - $y --> $x
-  * ($x - $y) + $y --> $x
-  * ($x * $y) / $y --> $x
-  * ($x / $y) * $y --> $x
+  * ($x + $y) - y --> x
+  * ($x - $y) + y --> x
+  * ($x * $y) / y --> x
+  * ($x / $y) * y --> x
 
 * **Identificazione delle operazioni binarie**: Per ogni istruzione di ogni Basic Block, viene verificato se si tratta di un'operazione binaria tramite un `dyn_cast<BinaryOperator>`. In caso positivo, viene controllata la tipologia di operazione ( **MUL**, **ADD**, **SUB**, **SDiv**).
 
