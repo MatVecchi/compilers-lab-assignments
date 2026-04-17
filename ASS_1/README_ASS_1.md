@@ -1,41 +1,105 @@
 # Implementazione dei 3 passi LLVM del Primo Assignment
 
-## 1. Algebric Identity
-AlgebricIdOptsPass implementation è un passo che verifica l'identita algebrica. Di seguito sono mostrati gli scenari ottimizzabili e la relativa trasformazione.
+## 1. Algebric Identity Pass
+AlgebricIdOptsPass implementation è un passo che verifica l'identità algebrica. Di seguito sono mostrati gli scenari ottimizzabili e la relativa trasformazione.
 
 * **Identità gestite:**
     * $x + 0 == 0 + x \rightarrow x$
     * $x \times 1 == 1 \times x \rightarrow x$
     * $x - 0 \rightarrow x$
     * $x / 1 \rightarrow x$
-* **Analisi e Identificazione**: Per ogni istruzione di ogni Basic Block, viene verificato se si tratta di un'operazione binaria tramite un `dyn_cast<BinaryOperator>`. In caso positivo, viene controllata la tipologia di operazione (es. **ADD**, **MUL**, **SDiv**).
+      
+* **Identificazione delle operazioni binarie**: Per ogni istruzione di ogni Basic Block, viene verificato se si tratta di un'operazione binaria tramite un `dyn_cast<BinaryOperator>`. In caso positivo, viene controllata la tipologia di operazione ( **ADD**, **SUB**, **MUL**, **SDiv**).
+  
 * **Classificazione degli Operandi**: Attraverso un `dyn_cast<ConstantInt>`, il passo identifica quale dei due operandi è costante e quale è un registro:
     * L'operando costante viene assegnato a `constantValue`.
-    * L'operando variabile viene assegnato a `registerValue`.
-* **Gestione della Commutatività**: Viene impostato il flag booleano `firstOperandRegister` in base alla posizione dell'operando non costante. Questo parametro è fondamentale per estendere l'ottimizzazione a operazioni non commutative, come sottrazioni e divisioni, garantendo la correttezza della trasformazione.
-* **Sostituzione degli Usi**: Se l'istruzione è ottimizzabile, viene invocato il metodo `replaceAllUsesWith` per rimpiazzare ogni riferimento alla `BinOp` originale con il relativo registro o con la nuova sequenza di istruzioni generata.
-* **Rimozione Differita (Safe Deletion)**: Tutte le istruzioni destinate all'eliminazione (come le *Algebric Identities*) vengono inserite in un vettore `toDelete`. La rimozione effettiva tramite `eraseFromParent()` avviene solo al termine dell'analisi del Basic Block; questo evita di modificare la struttura del codice mentre gli iteratori sono ancora in uso, scongiurando errori di segmentazione o comportamenti indefiniti.
+    * L'operando variabile viene assegnato a `registerOperand`.
+    
+* **Gestione della Commutatività**: Viene impostato il flag booleano `firstOperandRegister` che identifica se il parametro non costante è il primo o il secondo operando.
+Questo parametro permette inoltre di poter identificare quando l'ottimizzazione non è possibile a causa della mancanza della proprietà commutativa della sottrazione e della divisione.
+
+* **Ottimizzazione**: Ogni volta che si incontra una identità algebrica, la si sostituisce direttamente con il parametro non costante.
+Per fare ciò si utilizza il metodo `replaceAllUsesWith` sull’operazione binaria da ottimizzare.
+
+* **Dead Code elimination**: Tutte le operazioni binarie che sono state ottimizzate vengono inserite all'interno di un vettore `toDelete`.
+Alla fine del passo ciascuna di queste istruzioni verrà rimossa con il metodo `eraseFromParent`, applicando così una dead code elimination locale al basic block.
 
 
 ---
 
-## 2. Strength Reduction
-Questa è la sezione dedicata alla sostituzione di operazioni pesanti con alternative più leggere (quella che abbiamo visto nel codice precedente).
+## 2. Strength Reduction Pass
+è un passo che implementa l'ottimizzazione di strength reduction sia su moltiplicazioni positive con qualsiasi operando costante e che permette di poter ottimizzare tutte quante le divisioni positive con potenze di due.
+In entrambi i casi deve esistere un operando costante ed un operando non costante.
 
-* **Logica applicata:** Trasformazione di moltiplicazioni e divisioni in shift (`shl`, `ashr`).
-* **Casi supportati:**
-    * Moltiplicazione per potenze di 2 ($2^k \rightarrow \ll k$).
-    * Moltiplicazione per $2^k \pm 1$ (utilizzando shift + add/sub).
-    * Divisione per potenze di 2 (usando `ashr`).
-* **Dettagli Tecnici:** Menziona l'uso della funzione `found_pow` (o equivalenti APInt) per l'analisi delle costanti.
+* **Identità gestite:**
+    * MOLTIPLICAZIONE (vale la proprietà commutativa):
+    * $x * 16 --> $x << 4
+    * $x * 7 --> ($x << 2) + ( $x << 1 ) + $x
+    * $x * 1 --> $x
+    * $x * 0 --> 0
+
+    * DIVISIONE (il valore costante deve essere al denominatore):
+    * $x / 1 --> $x
+    * $x / 16 --> $x >> 4
+    
+* **Identificazione delle operazioni binarie**: Per ogni istruzione di ogni Basic Block, viene verificato se si tratta di un'operazione binaria tramite un `dyn_cast<BinaryOperator>`. In caso positivo, viene controllata la tipologia di operazione ( **MUL**, **SDiv**).
+
+* **Classificazione degli Operandi**: Attraverso un `dyn_cast<ConstantInt>`, il passo identifica quale dei due operandi è costante e quale è un registro:
+    * L'operando costante viene assegnato a `constantValue`.
+    * L'operando variabile viene assegnato a `registerOperand`.
+Per l'operazione di divisione non viene considerato il caso in cui l'operando non costante sia al denominatore.
+  
+* **Ottimizzazione**: Attraverso la funzione `found_pow` si verifica la casistica specifica in cui ci si trova:
+   * 0 --> moltiplicazione o divisione per 0
+   * 1 --> moltiplicazione o divisione per 1
+   * 2 --> moltiplicazione o divisione per potenze di 2
+   * 3 --> moltiplicazione o divisione per costante generico
+   * -1 --> moltiplicazione o divisione per numero negativo
+La funzione calcola inoltre, nel caso di moltiplicazione o divisione per potenza di due, il logaritmo del valore costante, ottenendo così il secondo operando da inserire nella relativa shift.
+Le ottimizzazioni dipendono dal risultato ottenuto:
+   * 0 & moltiplicazione --> si sostituisce l'operazione binaria con il valore 0 in tutti i suoi usi
+   * 0 & divisione --> non ottimizzabile
+   * 1 & (moltiplicazione | divisione ) --> si sostituisce l'operazione binaria con il relativo operando non costante
+   * 2 & moltiplicazione --> si sostituisce l'operazione binaria con uno shift a sinistra
+   * 2 & divisione --> si sostituisce l'operazione binaria uno shift a destra
+   * 3 & moltiplicazione --> si scompone la moltiplicazione come una somma di shift a sinistra con la relativa funzione `sommaShift`
+   * 3 & divisione --> non gestito
+   * -1 & (moltiplicazione | divisione ) --> non gestito
+     
+* **Dead Code elimination**: Tutte le operazioni binarie che sono state ottimizzate vengono inserite all'interno di un vettore `toDelete`.
+Alla fine del passo ciascuna di queste istruzioni verrà rimossa con il metodo `eraseFromParent`, applicando così una dead code elimination locale al basic block.
 
 ---
 
-## 3. Multi-Instruction Optimization
-Qui descrivi le ottimizzazioni che analizzano più istruzioni concatenate (peephole optimization o pattern matching più complessi).
+## 3. Multi-Instruction Optimization Pass
+Passo che verifica la multi-instruction optimization su somme, moltiplicazioni, divisioni e sottrazioni.
+Nel momento in cui viene trovata una operazione ottimizzabile, viene sostituita con il registro non costante
 
-* **Esempi tipici:**
-    * **Combinazione di shift:** `(x << 2) << 3` diventa `x << 5`.
-    * **Semplificazione Add/Sub:** `(x + a) - a` diventa `x`.
-    * **Moltiplicazioni consecutive:** `(x * 2) * 4` diventa `x * 8` (e poi ridotta a shift).
-* **Approccio:** Spiega se hai usato un approccio iterativo o se hai analizzato le catene di `User` delle istruzioni.
+* **Identità gestite:**
+  * Scenari con valori costanti (vale la proprietà commutativa) (16 è d'esempio):
+  * ($x + 16) - 16 --> $x
+  * ($x - 16) + 16 --> $x
+  * ($x * 16) / 16 --> $x
+  * ($x / 16) * 16 --> $x
+
+  * Scenari con operandi non costanti (si assume che si espanda sempre il primo operando non costante per semplicità):
+  * ($x + $y) - $y --> $x
+  * ($x - $y) + $y --> $x
+  * ($x * $y) / $y --> $x
+  * ($x / $y) * $y --> $x
+
+* **Identificazione delle operazioni binarie**: Per ogni istruzione di ogni Basic Block, viene verificato se si tratta di un'operazione binaria tramite un `dyn_cast<BinaryOperator>`. In caso positivo, viene controllata la tipologia di operazione ( **MUL**, **ADD**, **SUB**, **SDiv**).
+
+* **Classificazione degli Operandi**: Attraverso un `dyn_cast<ConstantInt>`, il passo identifica quale dei due operandi è costante e quale è un registro:
+    * L'operando costante viene assegnato a `constantValue`.
+    * L'operando variabile viene assegnato a `registerOperand`.
+    * in caso di due operandi non costanti il secondo operando è assegnato a `secondregisterOperand`
+Per poter eseguire l'identificazione viene richiamata la funzione `secondregisterValue` che ritorna inoltre il numero di operandi non costanti (espresso come un elemento di una enumerazione).
+ 
+* **Ottimizzazione**: si espande l'operando non costante con la relativa istruzione (se possibile) e si verifica che l'istruzione nidificata sia con lo stesso valore costante, ma con operatore opposto, rispetto alla istruzione esterna.
+Nel caso di due operandi non costanti si è deciso di espandere solamente il primo.
+La casistica di ottimizzazione è gestita dalla funzione `isOpposite`.
+In caso di ottimizzazione, si sostituisce a tutti gli uses dell'operazione binaria il registro non costante nidificato.
+
+* **Dead Code elimination**: Tutte le operazioni binarie che sono state ottimizzate vengono inserite all'interno di un vettore `toDelete`.
+Alla fine del passo ciascuna di queste istruzioni verrà rimossa con il metodo `eraseFromParent`, applicando così una dead code elimination locale al basic block.
