@@ -28,7 +28,7 @@ Alla fine del passo ciascuna di queste istruzioni verrà rimossa con il metodo `
 ---
 
 ## 2. Strength Reduction Pass
-è un passo che implementa l'ottimizzazione di strength reduction sia su moltiplicazioni positive con qualsiasi operando costante e che permette di poter ottimizzare tutte quante le divisioni positive con potenze di due.
+Passo di ottimizzazione che applica la Strength Reduction a moltiplicazioni e divisioni intere positive con un operando costante.
 In entrambi i casi deve esistere un operando costante ed un operando non costante.
 
 * **Identità gestite:**
@@ -41,6 +41,7 @@ In entrambi i casi deve esistere un operando costante ed un operando non costant
     * DIVISIONE (il valore costante deve essere al denominatore):
     * $x / 1 \rightarrow x$
     * $x / 16 \rightarrow x >> 4$
+    * $x / 10 \rightarrow (x \times M ) >> k$
     
 * **Identificazione delle operazioni binarie**: Per ogni istruzione di ogni Basic Block, viene verificato se si tratta di un'operazione binaria tramite un `dyn_cast<BinaryOperator>`. In caso positivo, viene controllata la tipologia di operazione ( **MUL**, **SDiv**).
 
@@ -64,7 +65,7 @@ La funzione calcola inoltre, nel caso di moltiplicazione o divisione per potenza
    * 2 & moltiplicazione -> si sostituisce l'operazione binaria con uno shift a sinistra
    * 2 & divisione -> si sostituisce l'operazione binaria uno shift a destra
    * 3 & moltiplicazione -> si scompone la moltiplicazione come una somma di shift a sinistra con la relativa funzione `sommaShift`
-   * 3 & divisione -> non gestito
+   * 3 & divisione -> applico la magic division con la funzione `magicDiv`
    * -1 & (moltiplicazione | divisione ) -> non gestito
      
 * **Rimozione Binary operation**: Tutte le operazioni binarie che sono state ottimizzate vengono inserite all'interno di un vettore `toDelete`.
