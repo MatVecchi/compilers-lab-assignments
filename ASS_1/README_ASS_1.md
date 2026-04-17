@@ -21,7 +21,7 @@ Questo parametro permette inoltre di poter identificare quando l'ottimizzazione 
 * **Ottimizzazione**: Ogni volta che si incontra una identità algebrica, la si sostituisce direttamente con il parametro non costante.
 Per fare ciò si utilizza il metodo `replaceAllUsesWith` sull’operazione binaria da ottimizzare.
 
-* **Dead Code elimination**: Tutte le operazioni binarie che sono state ottimizzate vengono inserite all'interno di un vettore `toDelete`.
+* **Rimozione Binary operation**: Tutte le operazioni binarie che sono state ottimizzate vengono inserite all'interno di un vettore `toDelete`.
 Alla fine del passo ciascuna di queste istruzioni verrà rimossa con il metodo `eraseFromParent`, applicando così una dead code elimination locale al basic block.
 
 
@@ -50,23 +50,24 @@ In entrambi i casi deve esistere un operando costante ed un operando non costant
 Per l'operazione di divisione non viene considerato il caso in cui l'operando non costante sia al denominatore.
   
 * **Ottimizzazione**: Attraverso la funzione `found_pow` si verifica la casistica specifica in cui ci si trova:
-   * $0 \rightarrow moltiplicazione o divisione per 0$
-   * $1 \rightarrow moltiplicazione o divisione per 1$
-   * $2 \rightarrow moltiplicazione o divisione per potenze di 2$
-   * $3 \rightarrow moltiplicazione o divisione per costante generico$
-   * $-1 \rightarrow moltiplicazione o divisione per numero negativo$
+   * 0 -> moltiplicazione o divisione per 0
+   * 1 -> moltiplicazione o divisione per 1
+   * 2 -> moltiplicazione o divisione per potenze di 2
+   * 3 -> moltiplicazione o divisione per costante generico
+   * -1 -> moltiplicazione o divisione per numero negativo
 La funzione calcola inoltre, nel caso di moltiplicazione o divisione per potenza di due, il logaritmo del valore costante, ottenendo così il secondo operando da inserire nella relativa shift.
-Le ottimizzazioni dipendono dal risultato ottenuto:
-   * $0 & moltiplicazione \rightarrow si sostituisce l'operazione binaria con il valore 0 in tutti i suoi usi$
-   * $0 & divisione \rightarrow non ottimizzabile$
-   * $1 & (moltiplicazione | divisione ) \rightarrow si sostituisce l'operazione binaria con il relativo operando non costante$
-   * $2 & moltiplicazione \rightarrow si sostituisce l'operazione binaria con uno shift a sinistra$
-   * $2 & divisione \rightarrow si sostituisce l'operazione binaria uno shift a destra$
-   * $3 & moltiplicazione \rightarrow si scompone la moltiplicazione come una somma di shift a sinistra con la relativa funzione `sommaShift`$
-   * $3 & divisione \rightarrow non gestito$
-   * $-1 & (moltiplicazione | divisione ) \rightarrow non gestito$
+
+* Le ottimizzazioni dipendono dal risultato ottenuto:
+   * 0 & moltiplicazione -> si sostituisce l'operazione binaria con il valore 0 in tutti i suoi usi
+   * 0 & divisione -> non ottimizzabile
+   * 1 & (moltiplicazione | divisione ) -> si sostituisce l'operazione binaria con il relativo operando non costante
+   * 2 & moltiplicazione -> si sostituisce l'operazione binaria con uno shift a sinistra
+   * 2 & divisione -> si sostituisce l'operazione binaria uno shift a destra
+   * 3 & moltiplicazione -> si scompone la moltiplicazione come una somma di shift a sinistra con la relativa funzione `sommaShift`
+   * 3 & divisione -> non gestito
+   * -1 & (moltiplicazione | divisione ) -> non gestito
      
-* **Dead Code elimination**: Tutte le operazioni binarie che sono state ottimizzate vengono inserite all'interno di un vettore `toDelete`.
+* **Rimozione Binary operation**: Tutte le operazioni binarie che sono state ottimizzate vengono inserite all'interno di un vettore `toDelete`.
 Alla fine del passo ciascuna di queste istruzioni verrà rimossa con il metodo `eraseFromParent`, applicando così una dead code elimination locale al basic block.
 
 ---
@@ -101,5 +102,5 @@ Nel caso di due operandi non costanti si è deciso di espandere solamente il pri
 La casistica di ottimizzazione è gestita dalla funzione `isOpposite`.
 In caso di ottimizzazione, si sostituisce a tutti gli uses dell'operazione binaria il registro non costante nidificato.
 
-* **Dead Code elimination**: Tutte le operazioni binarie che sono state ottimizzate vengono inserite all'interno di un vettore `toDelete`.
+* **Rimozione Binary operation**: Tutte le operazioni binarie che sono state ottimizzate vengono inserite all'interno di un vettore `toDelete`.
 Alla fine del passo ciascuna di queste istruzioni verrà rimossa con il metodo `eraseFromParent`, applicando così una dead code elimination locale al basic block.
