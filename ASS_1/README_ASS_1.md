@@ -33,14 +33,14 @@ In entrambi i casi deve esistere un operando costante ed un operando non costant
 
 * **Identità gestite:**
     * MOLTIPLICAZIONE (vale la proprietà commutativa):
-    * $x * 16 --> x << 4
-    * $x * 7 --> (x << 2) + ( x << 1 ) + x
-    * $x * 1 --> x
-    * $x * 0 --> 0
+    * $x \times 16 \rightarrow x << 4$
+    * $x \times 7 \rightarrow (x << 2) + ( x << 1 ) + x$
+    * $x \times 1 \rightarrow x$
+    * $x \times 0 \rightarrow 0$
 
     * DIVISIONE (il valore costante deve essere al denominatore):
-    * $x / 1 --> x
-    * $x / 16 --> x >> 4
+    * $x / 1 \rightarrow x$
+    * $x / 16 \rightarrow x >> 4$
     
 * **Identificazione delle operazioni binarie**: Per ogni istruzione di ogni Basic Block, viene verificato se si tratta di un'operazione binaria tramite un `dyn_cast<BinaryOperator>`. In caso positivo, viene controllata la tipologia di operazione ( **MUL**, **SDiv**).
 
@@ -50,21 +50,21 @@ In entrambi i casi deve esistere un operando costante ed un operando non costant
 Per l'operazione di divisione non viene considerato il caso in cui l'operando non costante sia al denominatore.
   
 * **Ottimizzazione**: Attraverso la funzione `found_pow` si verifica la casistica specifica in cui ci si trova:
-   * 0 --> moltiplicazione o divisione per 0
-   * 1 --> moltiplicazione o divisione per 1
-   * 2 --> moltiplicazione o divisione per potenze di 2
-   * 3 --> moltiplicazione o divisione per costante generico
-   * -1 --> moltiplicazione o divisione per numero negativo
+   * $0 \rightarrow moltiplicazione o divisione per 0$
+   * $1 \rightarrow moltiplicazione o divisione per 1$
+   * $2 \rightarrow moltiplicazione o divisione per potenze di 2$
+   * $3 \rightarrow moltiplicazione o divisione per costante generico$
+   * $-1 \rightarrow moltiplicazione o divisione per numero negativo$
 La funzione calcola inoltre, nel caso di moltiplicazione o divisione per potenza di due, il logaritmo del valore costante, ottenendo così il secondo operando da inserire nella relativa shift.
 Le ottimizzazioni dipendono dal risultato ottenuto:
-   * 0 & moltiplicazione --> si sostituisce l'operazione binaria con il valore 0 in tutti i suoi usi
-   * 0 & divisione --> non ottimizzabile
-   * 1 & (moltiplicazione | divisione ) --> si sostituisce l'operazione binaria con il relativo operando non costante
-   * 2 & moltiplicazione --> si sostituisce l'operazione binaria con uno shift a sinistra
-   * 2 & divisione --> si sostituisce l'operazione binaria uno shift a destra
-   * 3 & moltiplicazione --> si scompone la moltiplicazione come una somma di shift a sinistra con la relativa funzione `sommaShift`
-   * 3 & divisione --> non gestito
-   * -1 & (moltiplicazione | divisione ) --> non gestito
+   * $0 & moltiplicazione \rightarrow si sostituisce l'operazione binaria con il valore 0 in tutti i suoi usi$
+   * $0 & divisione \rightarrow non ottimizzabile$
+   * $1 & (moltiplicazione | divisione ) \rightarrow si sostituisce l'operazione binaria con il relativo operando non costante$
+   * $2 & moltiplicazione \rightarrow si sostituisce l'operazione binaria con uno shift a sinistra$
+   * $2 & divisione \rightarrow si sostituisce l'operazione binaria uno shift a destra$
+   * $3 & moltiplicazione \rightarrow si scompone la moltiplicazione come una somma di shift a sinistra con la relativa funzione `sommaShift`$
+   * $3 & divisione \rightarrow non gestito$
+   * $-1 & (moltiplicazione | divisione ) \rightarrow non gestito$
      
 * **Dead Code elimination**: Tutte le operazioni binarie che sono state ottimizzate vengono inserite all'interno di un vettore `toDelete`.
 Alla fine del passo ciascuna di queste istruzioni verrà rimossa con il metodo `eraseFromParent`, applicando così una dead code elimination locale al basic block.
@@ -77,16 +77,16 @@ Nel momento in cui viene trovata una operazione ottimizzabile, viene sostituita 
 
 * **Identità gestite:**
   * Scenari con valori costanti (vale la proprietà commutativa) (16 è d'esempio):
-  * ($x + 16) - 16 --> x
-  * ($x - 16) + 16 --> x
-  * ($x * 16) / 16 --> x
-  * ($x / 16) * 16 --> x
+  * $(x + 16) - 16 \rightarrow x$
+  * $(x - 16) + 16 \rightarrow x$
+  * $(x \times 16) / 16 \rightarrow x$
+  * $(x / 16) \times 16 \rightarrow x$
 
   * Scenari con operandi non costanti (si assume che si espanda sempre il primo operando non costante per semplicità):
-  * ($x + $y) - y --> x
-  * ($x - $y) + y --> x
-  * ($x * $y) / y --> x
-  * ($x / $y) * y --> x
+  * $(x + y) - y \rightarrow x$
+  * $(x - y) + y \rightarrow x$
+  * $(x \times y) / y \rightarrow x$
+  * $(x / y) \times y \rightarrow x$
 
 * **Identificazione delle operazioni binarie**: Per ogni istruzione di ogni Basic Block, viene verificato se si tratta di un'operazione binaria tramite un `dyn_cast<BinaryOperator>`. In caso positivo, viene controllata la tipologia di operazione ( **MUL**, **ADD**, **SUB**, **SDiv**).
 
