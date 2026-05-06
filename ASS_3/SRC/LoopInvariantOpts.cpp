@@ -8,6 +8,7 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/Analysis/LoopInfo.h"
+#include "llvm/IR/Dominators.h"
 #include <iostream>
 #include <string>
 #include <unordered_map>
@@ -17,6 +18,7 @@ using namespace llvm;
 namespace
 {
     void analyzeLoop(Loop *const LL, SmallPtrSet<BasicBlock *, 10> &toSkip);
+
     bool isLoopInvariant(Value *operand, Loop *const LL, SmallVector<Instruction *, 10> loopInvariantInstructions){
         if(dyn_cast<Constant>(operand) || dyn_cast<Argument>(operand))
             return true;
@@ -37,12 +39,12 @@ namespace
         return false;
     }
 
-    void findLoopInvariant(Loop *const LL, SmallPtrSet<BasicBlock *, 10> &toSkip){
+    void findLoopInvariant(Loop *const LL, SmallPtrSet<BasicBlock *, 10> &toSkip,  SmallVector<Instruction *, 10> &loopInvariantInstructions){
         for(Loop *const SubLL:LL->getSubLoops())
             analyzeLoop(SubLL, toSkip);
 
-        SmallVector<Instruction *, 10> loopInvariantInstructions;
-        for(BasicBlock *const BB:LL->getBlocks()){
+       
+        for(BasicBlock *const BB:LL->blocks()){
             if(toSkip.count(BB) != 0) continue;
 
             for(auto i = BB->begin(); i != BB->end(); ++i){
@@ -64,15 +66,89 @@ namespace
         }
     }
 
-    void codeMotion(Loop *const LL){
 
+    bool contains(SmallVector<Instruction *, 10> vec, Instruction *I){
+        for(Instruction *i: vec)
+            if(I == i)
+                return true;
+        return false;
     }
 
-    void analyzeLoop(Loop *const LL, SmallPtrSet<BasicBlock *, 10> &toSkip){
-        findLoopInvariant(LL, toSkip);
-        codeMotion(LL);
+    bool hasDependencies(Instruction* LIInstr, Loop *const LL, SmallVector<Instruction *, 10> codeMotionInstructions){
+        for(Value* operand: LIInstr->operands()){
+                if( auto C = dyn_cast<Constant>(operand))
+                    continue;
+                if( auto A = dyn_cast<Argument>(operand))
+                    continue;
 
-        for(BasicBlock *const BB:LL->getBlocks())
+                if( auto I = dyn_cast<Instruction>(operand))
+                    if(!LL->contains(I->getParent()) || contains(codeMotionInstructions, I) )
+                        continue;
+                return true;
+            }
+        return false;
+    }
+
+    bool verifyDominance(Instruction* LIInstr, SmallVector<BasicBlock *, 10> successorsBlocks, DominatorTree &DT){
+        BasicBlock LIIBasicBlock = LIInstr->getParent();
+        for(BasicBlock *exitBlock: successorsBlocks){
+            if(!DT.dominates(LIIBasicBlock, *exitBlock ) ){
+                return false;
+            }
+        }
+        return true;
+    }
+
+
+    bool verifyDeadCode(Instruction* LIInstr, Loop *const LL){
+        for (auto &U : LIInstr->uses()) {
+            User *user = U.getUser(); 
+            
+            if (Instruction *I = dyn_cast<Instruction>(user)) {
+                
+                // utilizzatore fuori dal loop --> successivo all'exit del loop.
+                if (!LL->contains(I->getParent())) 
+                    return false;
+
+            }else
+                return false; // da chiedere a lezione
+        }
+
+        return true;
+    }
+
+
+    void codeMotion(Loop *const LL,  SmallVector<Instruction *, 10> &loopInvariantInstructions, DominatorTree &DT, SmallVector<Instruction *, 10> &codeMotionInstructions){
+        SmallVector<BasicBlock *, 10> successorsBlocks;
+        LL->getExitBlocks(successorsBlocks);
+
+        for(Instruction *LIInstr: loopInvariantInstructions ){
+
+            if(hasDependencies(LIInstr, LL, codeMotionInstructions ))
+                continue;
+            
+
+            if(verifyDominance(LIInstr, successorsBlocks, DT)){
+                codeMotionInstructions.append(LIInstr)
+                continue;
+            }
+            
+            if(verifyDeadCode(LIInstr, LL))
+                codeMotionInstructions.append(LIInstr);
+        }
+    }
+
+    void analyzeLoop(Loop *const LL, SmallPtrSet<BasicBlock *, 10> &toSkip, DominatorTree &DT){
+        SmallVector<Instruction *, 10> loopInvariantInstructions;
+        SmallVector<Instruction *, 10> codeMotionInstructions;
+
+        findLoopInvariant(LL, toSkip, loopInvariantInstructions);
+        codeMotion(LL, loopInvariantInstructions, DT, codeMotionInstructions);
+
+        // sposta
+
+
+        for(BasicBlock *const BB:LL->blocks())
             toSkip.insert(BB);
         
     }
@@ -85,9 +161,11 @@ namespace
         PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM)
         {
             LoopInfo &LI = AM.getResult<LoopAnalysis>(F);
+            DominatorTree &DT = AM.getResult<DominatorTreeAnalysis>(F);
+
             for(auto &LL:LI){
                 SmallPtrSet<BasicBlock *, 10> vec;
-                analyzeLoop(LL, vec);
+                analyzeLoop(LL, vec, DT);
             }
          
             return PreservedAnalyses::all();
