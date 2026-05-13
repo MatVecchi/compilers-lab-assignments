@@ -4,36 +4,40 @@ target datalayout = "e-m:o-i64:64-i128:128-n32:64-S128-Fn32"
 target triple = "arm64-apple-macosx16.0.0"
 
 ; Function Attrs: noinline nounwind ssp uwtable(sync)
-define void @loop(i32 noundef %0, i32 noundef %1, i32 noundef %2) #0 {
-  br label %4
+define void @loop(i32 noundef %b, i32 noundef %c, i32 noundef %e) #0 {
+entry:
+  br label %while.cond
 
-4:                                                ; preds = %14, %3
-  %.0 = phi i32 [ undef, %3 ], [ %.1, %14 ]
-  %5 = srem i32 %0, 2
-  %6 = icmp eq i32 %5, 0
-  br i1 %6, label %7, label %11
+while.cond:                                       ; preds = %while.end, %entry
+  %d.0 = phi i32 [ undef, %entry ], [ %add, %while.end ]
+  %g.0 = phi i32 [ 0, %entry ], [ %add2, %while.end ]
+  %e.addr.0 = phi i32 [ %e, %entry ], [ %e.addr.1, %while.end ]
+  %c.addr.0 = phi i32 [ %c, %entry ], [ %inc, %while.end ]
+  %cmp = icmp slt i32 %c.addr.0, 10
+  br i1 %cmp, label %while.body, label %while.end8
 
-7:                                                ; preds = %4
-  %8 = icmp eq i32 %1, 7
-  br i1 %8, label %9, label %10
+while.body:                                       ; preds = %while.cond
+  %add = add nsw i32 5, 5
+  %add1 = add nsw i32 %add, %c.addr.0
+  %add2 = add nsw i32 %g.0, 1
+  %inc = add nsw i32 %c.addr.0, 1
+  br label %while.cond3
 
-9:                                                ; preds = %7
-  br label %16
+while.cond3:                                      ; preds = %while.body5, %while.body
+  %e.addr.1 = phi i32 [ %e.addr.0, %while.body ], [ %inc7, %while.body5 ]
+  %cmp4 = icmp slt i32 %e.addr.1, 10
+  br i1 %cmp4, label %while.body5, label %while.end
 
-10:                                               ; preds = %7
-  br label %14
+while.body5:                                      ; preds = %while.cond3
+  %add6 = add nsw i32 5, 10
+  %inc7 = add nsw i32 %e.addr.1, 1
+  br label %while.cond3, !llvm.loop !6
 
-11:                                               ; preds = %4
-  %12 = add nsw i32 %0, %1
-  %13 = add nsw i32 %12, 2
-  br label %14
+while.end:                                        ; preds = %while.cond3
+  br label %while.cond, !llvm.loop !8
 
-14:                                               ; preds = %11, %10
-  %.1 = phi i32 [ %.0, %10 ], [ %12, %11 ]
-  %15 = add nsw i32 %.1, 1
-  br label %4
-
-16:                                               ; preds = %9
+while.end8:                                       ; preds = %while.cond
+  %add9 = add nsw i32 %d.0, 1
   ret void
 }
 
@@ -48,3 +52,6 @@ attributes #0 = { noinline nounwind ssp uwtable(sync) "frame-pointer"="non-leaf"
 !3 = !{i32 7, !"uwtable", i32 1}
 !4 = !{i32 7, !"frame-pointer", i32 1}
 !5 = !{!"clang version 19.1.7 (/Users/runner/work/llvm-project/llvm-project/clang cd708029e0b2869e80abe31ddb175f7c35361f90)"}
+!6 = distinct !{!6, !7}
+!7 = !{!"llvm.loop.mustprogress"}
+!8 = distinct !{!8, !7}

@@ -28,9 +28,6 @@ namespace
             // Da chiedere a lezione: dominance tree su istruzioni.
             if (!LL->contains(I->getParent()))
                 return true;
-
-            if(dyn_cast<PHINode>(operand))
-                return false; // Da chiedere a lezione.
             
             return isLoopInvariantInstruction(I, LL, loopInvariantInstructions);
         }
@@ -44,6 +41,9 @@ namespace
         for (Instruction *InvInst : loopInvariantInstructions)
                 if (InvInst == I)
                     return true;
+
+        if(dyn_cast<PHINode>(I))
+                return false; // Da chiedere a lezione.
 
         for(Value* op : I->operands())
             if(!isLoopInvariantOperand(op, LL, loopInvariantInstructions)){
@@ -70,30 +70,13 @@ namespace
 
 
 
-
-
-
-
-    bool contains(SmallVector<Instruction *, 10> vec, Instruction *I){
-        for(Instruction *i: vec)
-            if(I == i)
-                return true;
-        return false;
-    }
-
-    bool hasDependencies(Instruction* LIInstr, SmallVector<Instruction *, 10> codeMotionInstructions){
-        for(Value* operand: LIInstr->operands()){
-            if( auto I = dyn_cast<Instruction>(operand))
-                    if(contains(codeMotionInstructions, I))
-                        return true;
-        }
-        return false;
-    }
+    
 
     bool verifyDominance(Instruction* LIInstr, SmallVector<BasicBlock *, 10> successorsBlocks, DominatorTree &DT){
         BasicBlock *LIIBasicBlock = LIInstr->getParent();
         for(BasicBlock *exitBlock: successorsBlocks){
             if(!DT.dominates(LIIBasicBlock, exitBlock ) ){
+                errs() << LIIBasicBlock->getName() << " non domina " << exitBlock->getName() << "\n";
                 return false;
             }
         }
@@ -101,14 +84,21 @@ namespace
     }
 
 
+    /**
+     * Anche se io definisco un d = a +5 dentro al loop e anche un suo uso fuori dal loop.
+     * Devo definire d fuori dal loop.
+     * Questo mi porta alla creazione di un phi node nell'header del loop che automaticamente 
+     * rende la somma senza usi (l'sitruzione fuori dal loop usa il phi node dentro)
+     */
     bool verifyDeadCode(Instruction* LIInstr, DominatorTree &DT, SmallVector<BasicBlock *, 10> successorsBlocks){
         for (auto &U : LIInstr->uses()) {
             User *user = U.getUser(); 
             
             if (Instruction *I = dyn_cast<Instruction>(user)) {
                 for(BasicBlock *exitBlock: successorsBlocks){
-                    if(DT.dominates(exitBlock, I->getParent()))
+                    if(DT.dominates(exitBlock, I->getParent())){
                         return false;                    
+                    }
                 }
             }else
                 return false; 
@@ -117,24 +107,43 @@ namespace
     }
 
 
-    void verifyCodeMotion(Loop *const LL,  SmallVector<Instruction *, 10> &loopInvariantInstructions, DominatorTree &DT, SmallVector<Instruction *, 10> &codeMotionInstructions){
+    void verifyCodeMotion(Loop *const LL,  SmallVector<Instruction *, 10> &loopInvariantInstructions, DominatorTree &DT, SmallPtrSet<Instruction *, 10> &codeMotionInstructions){
         SmallVector<BasicBlock *, 10> successorsBlocks;
         LL->getExitBlocks(successorsBlocks);
 
         for(Instruction *LIInstr: loopInvariantInstructions ){
 
             if(verifyDominance(LIInstr, successorsBlocks, DT)){
-                codeMotionInstructions.push_back(LIInstr);
+                codeMotionInstructions.insert(LIInstr);
                 continue;
             }
             
             if(verifyDeadCode(LIInstr, DT, successorsBlocks))
-                codeMotionInstructions.push_back(LIInstr);
+                codeMotionInstructions.insert(LIInstr);
         }
     }
 
 
-    void moveInstructions(SmallVector<Instruction *, 10> &codeMotionInstructions, Loop *LL){
+    /*
+    bool contains(SmallVector<Instruction *, 10> vec, Instruction *I){
+        for(Instruction *i: vec)
+            if(I == i)
+                return true;
+        return false;
+    }*/
+
+    bool hasDependencies(Instruction* LIInstr, SmallPtrSet<Instruction *, 10> codeMotionInstructions){
+        for(Value* operand: LIInstr->operands()){
+            if( auto I = dyn_cast<Instruction>(operand))
+                if(codeMotionInstructions.contains(I)){
+                    errs() << "Ha una dipendenza \n ";
+                    return true;
+                }
+        }
+        return false;
+    }
+
+    void moveInstructions(SmallPtrSet<Instruction *, 10> &codeMotionInstructions, Loop *LL){
 
         Instruction *preHeaderTerminator = (LL->getLoopPreheader())->getTerminator();
 
@@ -143,6 +152,7 @@ namespace
                 if(!hasDependencies(moveableInstruction,  codeMotionInstructions)){
                     moveableInstruction->removeFromParent();
                     moveableInstruction->insertBefore(preHeaderTerminator);
+                    codeMotionInstructions.erase(moveableInstruction);
                 }
             }
         } 
@@ -150,16 +160,19 @@ namespace
 
     void analyzeLoop(Loop *const LL, SmallPtrSet<BasicBlock *, 10> &toSkip, DominatorTree &DT){
         SmallVector<Instruction *, 10> loopInvariantInstructions;
-        SmallVector<Instruction *, 10> codeMotionInstructions;
+        SmallPtrSet<Instruction *, 10> codeMotionInstructions;
 
 
         // Analisi dei loop interni in post order
         for(Loop *const SubLL:LL->getSubLoops())
             analyzeLoop(SubLL, toSkip, DT);
 
+        errs() <<"\nLoop invariant instructions: \n";
+
         findLoopInvariant(LL, toSkip, loopInvariantInstructions, DT);
         verifyCodeMotion(LL, loopInvariantInstructions, DT, codeMotionInstructions);
 
+        errs() << "\n\nMovable (code motion) instructions: \n";
         for(Instruction *i: codeMotionInstructions)
             errs() << *i << " is Movable\n";
 

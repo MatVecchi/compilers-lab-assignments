@@ -1,17 +1,20 @@
 #include <stdio.h>
 
 void loop( int b, int c, int e){
-    int a, f, d;
-
-    while(1){
-        if(b%2==0){
-            e = 3;
-            if( c == 7 )
-                break;
-        }else{
-            a = b+c;
-            f = a+2;
+    int a = 5;
+    int d, f;
+    int g = 0;
+    
+    while(c<10){
+        d = a+5;
+        f = d+c;
+        g = g+1;
+        c++;
+        while(e<10){
+            b = a + 10;
+            e++;
         }
-        d = a+1;
     }
+
+    g = d+1;
 }   
