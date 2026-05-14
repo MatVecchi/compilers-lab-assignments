@@ -9,6 +9,8 @@ void loop( int b, int c, int e){
         d = a+5;
         f = d+c;
         g = g+1;
+        if(c == 5)
+            g = d;
         c++;
         while(e<10){
             b = a + 10;
@@ -16,5 +18,10 @@ void loop( int b, int c, int e){
         }
     }
 
-    g = d+1;
+    while(c<20){
+        d = a+6;
+    }
+
+    int k = d+1;
+    int j = g+1;
 }   

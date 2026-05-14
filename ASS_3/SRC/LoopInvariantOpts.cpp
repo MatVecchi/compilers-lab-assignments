@@ -76,7 +76,7 @@ namespace
         BasicBlock *LIIBasicBlock = LIInstr->getParent();
         for(BasicBlock *exitBlock: successorsBlocks){
             if(!DT.dominates(LIIBasicBlock, exitBlock ) ){
-                errs() << LIIBasicBlock->getName() << " non domina " << exitBlock->getName() << "\n";
+                //errs() << LIIBasicBlock->getName() << " non domina " << exitBlock->getName() << "\n";
                 return false;
             }
         }
@@ -85,25 +85,65 @@ namespace
 
 
     /**
-     * Anche se io definisco un d = a +5 dentro al loop e anche un suo uso fuori dal loop.
-     * Devo definire d fuori dal loop.
-     * Questo mi porta alla creazione di un phi node nell'header del loop che automaticamente 
-     * rende la somma senza usi (l'sitruzione fuori dal loop usa il phi node dentro)
+     * Prende in input una istruzione e verifica se viene utilizzata fuori da un loop o in un phi node.
+     * 
+     * Se l'istruzione viene usata in un phi node nell'header (e tale phi usato fuori dal loop) 
+     * significa che l'itruzione in se ha un uso (indiretto tramite phi) fuori dal loop e non è dead code
+     * 
+     * Se l'istruzione viene usata in un phi node non nell'header:
+     * si verifica se è dentro o fuori il loop
+     * - se è dentro il loop viene ignorato (phi normale di utilizzo dentro il loop)
+     * - se è fuori dal loop (dominato dall'uscita) significa che un generico uso al di fuori del loop
+     *   e la realtiva istruzione non è dead code.
+     * 
+     * Se l'istruzione viene usata in un'altra istruzione fuori dal loop significa che non è dead code
      */
-    bool verifyDeadCode(Instruction* LIInstr, DominatorTree &DT, SmallVector<BasicBlock *, 10> successorsBlocks){
-        for (auto &U : LIInstr->uses()) {
-            User *user = U.getUser(); 
+    bool verifyDeadCode(Instruction* LIInstr, DominatorTree &DT, Loop *LL, SmallVector<BasicBlock *, 10> successorsBlocks){
+        for(auto const &user: LIInstr->users()){
+            auto *userInstruction = dyn_cast<Instruction>(user);
             
-            if (Instruction *I = dyn_cast<Instruction>(user)) {
+            if(!userInstruction)
+                return false;
+
+            if(auto *phiNodeInstruction = dyn_cast<PHINode>(userInstruction)){
+
+                /**
+                Si può semplificare con:
+
+                if(LL->getHeader() == phiNodeInstruction->getParent()){
+                    errs() << "%"<<(*LIInstr).getName()<< " Ha il phi node "<< "%"<<(*phiNodeInstruction).getName() <<" nell header, ovvero possibili multiple reaching def\n";
+                    return false
+                }
+
+                */
+
+                // verifico se l'user è il phi node nell'heder che introduce LLVM per gestire gli utilizzi esterni al loop
+                if(LL->getHeader() == phiNodeInstruction->getParent()){
+                    errs() << "%"<<(*LIInstr).getName()<< " Ha il phi node "<< "%"<<(*phiNodeInstruction).getName() <<" nell header, ovvero possibili multiple reaching def\n";
+                    if(!verifyDeadCode(phiNodeInstruction, DT, LL, successorsBlocks))
+                        return false;
+                    continue;
+                }
+                    
+                // verifico se lo user, anche se phi, è dentro o fuori al loop
                 for(BasicBlock *exitBlock: successorsBlocks){
-                    if(DT.dominates(exitBlock, I->getParent())){
+                    if(DT.dominates(exitBlock, phiNodeInstruction->getParent())){
+                        errs() << "%"<<(*LIInstr).getName() << " è usata fuori dal loop nel phi:"<< *phiNodeInstruction <<"\n";
                         return false;                    
                     }
                 }
-            }else
-                return false; 
+            }else{
+
+                // verifico se lo user normale (non phi) è dentro o fuori al loop
+                for(BasicBlock *exitBlock: successorsBlocks){
+                    if(DT.dominates(exitBlock, userInstruction->getParent())){
+                        errs() << "%"<<(*LIInstr).getName() << " è usata fuori dal loop\n";
+                        return false;                    
+                    }
+                }
+            }     
         }
-        return true;
+        return true; 
     }
 
 
@@ -118,19 +158,11 @@ namespace
                 continue;
             }
             
-            if(verifyDeadCode(LIInstr, DT, successorsBlocks))
+            if(verifyDeadCode(LIInstr, DT, LL, successorsBlocks))
                 codeMotionInstructions.insert(LIInstr);
         }
     }
 
-
-    /*
-    bool contains(SmallVector<Instruction *, 10> vec, Instruction *I){
-        for(Instruction *i: vec)
-            if(I == i)
-                return true;
-        return false;
-    }*/
 
     bool hasDependencies(Instruction* LIInstr, SmallPtrSet<Instruction *, 10> codeMotionInstructions){
         for(Value* operand: LIInstr->operands()){
@@ -167,9 +199,12 @@ namespace
         for(Loop *const SubLL:LL->getSubLoops())
             analyzeLoop(SubLL, toSkip, DT);
 
+        errs() << "\n---------------------------\n";
         errs() <<"\nLoop invariant instructions: \n";
 
         findLoopInvariant(LL, toSkip, loopInvariantInstructions, DT);
+        errs() << "\n\nVerifica delle movable instructions:\n";
+
         verifyCodeMotion(LL, loopInvariantInstructions, DT, codeMotionInstructions);
 
         errs() << "\n\nMovable (code motion) instructions: \n";
@@ -178,6 +213,7 @@ namespace
 
         moveInstructions(codeMotionInstructions, LL);
 
+        errs() << "\n---------------------------\n";
     
         for(BasicBlock *const BB:LL->blocks())
             toSkip.insert(BB);

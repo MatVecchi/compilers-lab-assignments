@@ -10,34 +10,55 @@ entry:
 
 while.cond:                                       ; preds = %while.end, %entry
   %d.0 = phi i32 [ undef, %entry ], [ %add, %while.end ]
-  %g.0 = phi i32 [ 0, %entry ], [ %add2, %while.end ]
+  %g.0 = phi i32 [ 0, %entry ], [ %g.1, %while.end ]
   %e.addr.0 = phi i32 [ %e, %entry ], [ %e.addr.1, %while.end ]
   %c.addr.0 = phi i32 [ %c, %entry ], [ %inc, %while.end ]
   %cmp = icmp slt i32 %c.addr.0, 10
-  br i1 %cmp, label %while.body, label %while.end8
+  br i1 %cmp, label %while.body, label %while.end9
 
 while.body:                                       ; preds = %while.cond
   %add = add nsw i32 5, 5
   %add1 = add nsw i32 %add, %c.addr.0
   %add2 = add nsw i32 %g.0, 1
+  %cmp3 = icmp eq i32 %c.addr.0, 5
+  br i1 %cmp3, label %if.then, label %if.end
+
+if.then:                                          ; preds = %while.body
+  br label %if.end
+
+if.end:                                           ; preds = %if.then, %while.body
+  %g.1 = phi i32 [ %add, %if.then ], [ %add2, %while.body ]
   %inc = add nsw i32 %c.addr.0, 1
-  br label %while.cond3
+  br label %while.cond4
 
-while.cond3:                                      ; preds = %while.body5, %while.body
-  %e.addr.1 = phi i32 [ %e.addr.0, %while.body ], [ %inc7, %while.body5 ]
-  %cmp4 = icmp slt i32 %e.addr.1, 10
-  br i1 %cmp4, label %while.body5, label %while.end
+while.cond4:                                      ; preds = %while.body6, %if.end
+  %e.addr.1 = phi i32 [ %e.addr.0, %if.end ], [ %inc8, %while.body6 ]
+  %cmp5 = icmp slt i32 %e.addr.1, 10
+  br i1 %cmp5, label %while.body6, label %while.end
 
-while.body5:                                      ; preds = %while.cond3
-  %add6 = add nsw i32 5, 10
-  %inc7 = add nsw i32 %e.addr.1, 1
-  br label %while.cond3, !llvm.loop !6
+while.body6:                                      ; preds = %while.cond4
+  %add7 = add nsw i32 5, 10
+  %inc8 = add nsw i32 %e.addr.1, 1
+  br label %while.cond4, !llvm.loop !6
 
-while.end:                                        ; preds = %while.cond3
+while.end:                                        ; preds = %while.cond4
   br label %while.cond, !llvm.loop !8
 
-while.end8:                                       ; preds = %while.cond
-  %add9 = add nsw i32 %d.0, 1
+while.end9:                                       ; preds = %while.cond
+  br label %while.cond10
+
+while.cond10:                                     ; preds = %while.body12, %while.end9
+  %d.1 = phi i32 [ %d.0, %while.end9 ], [ %add13, %while.body12 ]
+  %cmp11 = icmp slt i32 %c.addr.0, 20
+  br i1 %cmp11, label %while.body12, label %while.end14
+
+while.body12:                                     ; preds = %while.cond10
+  %add13 = add nsw i32 5, 6
+  br label %while.cond10, !llvm.loop !9
+
+while.end14:                                      ; preds = %while.cond10
+  %add15 = add nsw i32 %d.1, 1
+  %add16 = add nsw i32 %g.0, 1
   ret void
 }
 
@@ -55,3 +76,4 @@ attributes #0 = { noinline nounwind ssp uwtable(sync) "frame-pointer"="non-leaf"
 !6 = distinct !{!6, !7}
 !7 = !{!"llvm.loop.mustprogress"}
 !8 = distinct !{!8, !7}
+!9 = distinct !{!9, !7}
