@@ -1,29 +1,27 @@
 # Implementazione della Loop Invariant Code Motion del Terzo Assignment
 
 ## 1. Implementazione della Loop Invariant
-AlgebricIdOptsPass implementation è un passo che verifica l'identità algebrica. Di seguito sono mostrati gli scenari ottimizzabili e la relativa trasformazione.
+Metodi che gestiscono tutta la logica della loop invariant
+### `isLoopInvariantOperand`
 
-* **Identità gestite:**
-    * $x + 0 == 0 + x \rightarrow x$
-    * $x \times 1 == 1 \times x \rightarrow x$
-    * $x - 0 \rightarrow x$
-    * $x / 1 \rightarrow x$
+```cpp
+bool isLoopInvariantOperand(Value *operand, Loop *const LL, SmallVector<Instruction *, 10> &loopInvariantInstructions)
+```
+
+* **Parametri:**
+    * ​**operand**: Il puntatore al valore (Value*) da analizzare.
+    * **​LL**: Il ciclo (Loop*) all'interno del quale si sta valutando l'invarianza.
+    * **​loopInvariantInstructions:** Un vettore di supporto (SmallVector) utilizzato per tenere traccia delle istruzioni già identificate come invarianti
       
-* **Identificazione delle operazioni binarie**: Per ogni istruzione di ogni Basic Block, viene verificato se si tratta di un'operazione binaria tramite un `dyn_cast<BinaryOperator>`. In caso positivo, viene controllata la tipologia di operazione ( **ADD**, **SUB**, **MUL**, **SDiv**).
+* **Logica di funzionamento:**
+​ La funzione determina l'invarianza dell'operando seguendo questi tre criteri sequenziali:
+   1. **Costanti e Argomenti:** Se l'operando è una costante (Constant) o un argomento della funzione (Argument), il suo valore è globalmente immutabile nel contesto del ciclo. La funzione ritorna immediatamente true.
+   2. **Istruzioni esterne al loop:** Se l'operando è un'istruzione (Instruction) la cui definizione (il blocco genitore getParent()) si trova al di fuori del loop analizzato, il suo valore non può variare all'interno del ciclo. La funzione ritorna true.
+   3. **Istruzioni interne al loop:** Se l'operando è un'istruzione definita dentro il loop, la sua invarianza dipende da come è stata generata. La funzione delega quindi il controllo al metodo ausiliario isLoopInvariantInstruction.  
+
+​Se l'operando non soddisfa nessuno dei criteri precedenti, viene considerato non invariante e la funzione ritorna false.
   
-* **Classificazione degli Operandi**: Attraverso un `dyn_cast<ConstantInt>`, il passo identifica quale dei due operandi è costante e quale è un registro:
-    * L'operando costante viene assegnato a `constantValue`.
-    * L'operando variabile viene assegnato a `registerOperand`.
-    
-* **Gestione della Commutatività**: Viene impostato il flag booleano `firstOperandRegister` che identifica se il parametro non costante è il primo o il secondo operando.
-Questo parametro permette inoltre di poter identificare quando l'ottimizzazione non è possibile a causa della mancanza della proprietà commutativa della sottrazione e della divisione.
-
-* **Ottimizzazione**: Ogni volta che si incontra una identità algebrica, la si sostituisce direttamente con il parametro non costante.
-Per fare ciò si utilizza il metodo `replaceAllUsesWith` sull’operazione binaria da ottimizzare.
-
-* **Rimozione Binary operation**: Tutte le operazioni binarie che sono state ottimizzate vengono inserite all'interno di un vettore `toDelete`.
-Alla fine del passo ciascuna di queste istruzioni verrà rimossa con il metodo `eraseFromParent`, applicando così una dead code elimination locale al basic block.
-
+### `isLoopInvariantInstruction`
 
 ---
 
