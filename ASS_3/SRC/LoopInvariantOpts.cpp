@@ -34,10 +34,10 @@ namespace
         if(dyn_cast<Constant>(operand) || dyn_cast<Argument>(operand))
             return true;
 
-        // se è una istruzione verifico se è definito fuori dal loop o è loop invariant
+        // se è un'istruzione verifico se è definito fuori dal loop o è loop invariant
         if (Instruction *I = dyn_cast<Instruction>(operand)) {
             
-            // se la definizione è definita furoi dal loop --> l'operando è loop invariant 
+            // se la definizione è definita fuori dal loop --> l'operando è loop invariant 
             if (!LL->contains(I->getParent()))
                 return true;
             
@@ -59,9 +59,9 @@ namespace
      * 
      * - Devono essere definiti fuori dal loop
      * oppure
-     * - Devono essere definit da una istruzione dentro il loop che è a sua volta loop invariant
+     * - Devono essere definiti da un'istruzione dentro il loop che è a sua volta loop invariant
      * 
-     * Per verificare se una di queste codnizioni è verificata si richiama ricorsivamente la funzione isLoopInvariantOperand
+     * Per verificare se una di queste condizioni è verificata si richiama ricorsivamente la funzione isLoopInvariantOperand
      * - Se almeno un operando non è loop invariant --> l'intera istruzione non è loop invariant
      * - Se tutti gli operandi sono loop invariant --> viene fatto ritornare true
      */
@@ -91,7 +91,7 @@ namespace
      * verifico con l'apposita funzione se l'istruzione è loop invariant.
      *  
      * - Se il controllo è positivo la aggiungo all'array 
-     * - altrimenti non la aggiungo e passo alla istruzione successiva 
+     * - altrimenti non la aggiungo e passo all'istruzione successiva 
      */
     void findLoopInvariant(Loop *const LL, SmallPtrSet<BasicBlock *, 10> &toSkip,  SmallVector<Instruction *, 10> &loopInvariantInstructions, DominatorTree &DT){
        
@@ -115,10 +115,10 @@ namespace
 
 
     /**
-     * Funzione che, data una istruzione Loop invariant verifica se domina tutte le uscite del loop (passate come argomento)
+     * Funzione che, data un'istruzione Loop invariant verifica se domina tutte le uscite del loop (passate come argomento)
      * 
      * Per farlo si scorrono tutti i blocchi successivi al loop (successorsBlocks) e si verifica la proprietà di dominanza
-     * fra l'istruzione data fornita come argomento e ciascuno dei blocchi successivi.
+     * fra l'istruzione fornita come argomento e ciascuno dei blocchi successivi.
      * - Se il controllo è positivo su tutti i blocchi --> domina tutte le uscite --> ritorna true
      * - Se il controllo fallisce almeno una volta --> non domina tutte le uscite --> ritorna false
      */
@@ -138,18 +138,19 @@ namespace
 
 
     /**
-     * Prende in input una istruzione e verifica se viene utilizzata fuori da un loop o in un phi node.
+     * Prende in input un'istruzione e verifica se viene utilizzata fuori da un loop o in un phi node nell'header del loop.
+     * Per fare questa verifica vengono considerati 3 scenari:
      * 
-     * Se l'istruzione viene usata in un phi node nell'header (e tale phi usato fuori dal loop) 
-     * significa che l'itruzione in se ha un uso (indiretto tramite phi) fuori dal loop e non è dead code
+     * 1: Se l'istruzione viene usata in un phi node nell'header (e tale phi viene usato fuori dal loop) 
+     * significa che l'itruzione in se ha un uso fuori dal loop e non è dead code
      * 
-     * Se l'istruzione viene usata in un phi node non nell'header:
+     * 2: Se l'istruzione viene usata in un phi node non nell'header:
      * si verifica se è dentro o fuori il loop
-     * - se è dentro il loop viene ignorato (phi normale di utilizzo dentro il loop)
-     * - se è fuori dal loop (dominato dall'uscita) significa che un generico uso al di fuori del loop
+     * - se è dentro il loop viene ignorato (phi di normale utilizzo dentro il loop)
+     * - se è fuori dal loop (dominato dall'uscita) significa che è un generico uso al di fuori del loop
      *   e la realtiva istruzione non è dead code.
      * 
-     * Se l'istruzione viene usata in un'altra istruzione fuori dal loop significa che non è dead code
+     * 3: Se l'istruzione viene usata in un'altra istruzione fuori dal loop significa che non è dead code
      */
     bool verifyDeadCode(Instruction* LIInstr, DominatorTree &DT, Loop *LL, SmallVector<BasicBlock *, 10> successorsBlocks){
         for(auto const &user: LIInstr->users()){
@@ -178,7 +179,7 @@ namespace
                     continue;
                 }
                     
-                // verifico se lo user, anche se phi, è dentro o fuori al loop
+                // verifico se lo user, anche se phi, è dentro o fuori dal loop
                 for(BasicBlock *exitBlock: successorsBlocks){
                     if(DT.dominates(exitBlock, phiNodeInstruction->getParent())){
                         errs() << "%"<<(*LIInstr).getName() << " è usata fuori dal loop nel phi:"<< *phiNodeInstruction <<"\n";
@@ -187,7 +188,7 @@ namespace
                 }
             }else{
 
-                // verifico se lo user normale (non phi) è dentro o fuori al loop
+                // verifico se lo user normale (non phi) è dentro o fuori dal loop
                 for(BasicBlock *exitBlock: successorsBlocks){
                     if(DT.dominates(exitBlock, userInstruction->getParent())){
                         errs() << "%"<<(*LIInstr).getName() << " è usata fuori dal loop\n";
@@ -202,21 +203,21 @@ namespace
 
     /**
      * Funzione che verifica quali istruzioni loop invariant passate come argomento sono movable e quali no.
-     * Data una istruzione loop invariant questa è movable se:
+     * Data un'istruzione loop invariant questa è movable se:
      * 
      * - Domina tutte le uscite del loop.
      * - Non ha usi al di fuori del loop.
      * - La variabile non viene ridefinita dentro il loop (implicitamente verificato da SSA)
-     * - la varaibile domina tutti i suoi usi dentro al loop (implicitamente verificatwo da SSA)
+     * - la varaibile domina tutti i suoi usi dentro al loop (implicitamente verificato da SSA)
      * 
      * Tutte le istruzioni movable sono inserite dentro l'apposito set: codeMotionInstructions
      */
     void verifyCodeMotion(Loop *const LL,  SmallVector<Instruction *, 10> &loopInvariantInstructions, DominatorTree &DT, SmallPtrSet<Instruction *, 10> &codeMotionInstructions){
-        // ottengo la referenza ai blocchi successivi (exit blocks) del loop (uscite edl loop)
+        // ottengo la referenza ai blocchi successivi (exit blocks) del loop (uscite del loop)
         SmallVector<BasicBlock *, 10> successorsBlocks;
         LL->getExitBlocks(successorsBlocks);
 
-        // per ogni instruction loop invariant verifico le proprietà e in tal caso la aggiungo al movable instruction set
+        // per ogni istruzione loop invariant verifico le 2 proprietà. In caso di correttezza la aggiungo al movable instruction set
         for(Instruction *LIInstr: loopInvariantInstructions ){
 
             //verifico che domini tutte le uscite con la funzione verifyDominance
@@ -225,25 +226,25 @@ namespace
                 continue;
             }
             
-            // verifico che non abbia usi al di fuori del loop on verifyDeadCode
+            // verifico che non abbia usi al di fuori del loop con verifyDeadCode
             if(verifyDeadCode(LIInstr, DT, LL, successorsBlocks))
                 codeMotionInstructions.insert(LIInstr);
         }
     }
 
     /**
-     * Funzione che verifica se una specifica funzione ha dipendenze rispetto ad una qualsiasi altra istruzione presente nel set
+     * Funzione che verifica se una specifica istruzione ha dipendenze rispetto ad una qualsiasi altra istruzione presente nel set
      * passato come argomento.
      * 
-     * Dipendenza: una istruzione A è dipendente da una istruzione B nel caso in cui l'istruzione B venga usata come operando 
-     * dall'istruzione A. (entrambe devono essere dentro il set delle movable instruction)
+     * Dipendenza: un'istruzione A è dipendente da un'istruzione B nel caso in cui l'istruzione B venga usata come operando 
+     * dall'istruzione A. (entrambe devono essere dentro il set delle movable instructions)
      * 
-     * Nel caso dipendenza ritorna true, altrimenti false
+     * Nel caso di dipendenza ritorna true, altrimenti false
      */
     bool hasDependencies(Instruction* LIInstr, SmallPtrSet<Instruction *, 10> codeMotionInstructions){
         for(Value* operand: LIInstr->operands()){
             if( auto I = dyn_cast<Instruction>(operand))
-            // se un qualsiasi operando della istruzione è contenuto dentro codeMotionInstruction --> c'è una dipendenza 
+            // se la definizione di un qualsiasi operando dell'istruzione analizzata è contenuto dentro codeMotionInstruction --> c'è una dipendenza 
                 if(codeMotionInstructions.contains(I)){
                     errs() << "Ha una dipendenza \n ";
                     return true;
@@ -253,16 +254,16 @@ namespace
     }
 
     /**
-     * Funzione che, dato un insieme di istruzioni movable le muove dalla loro posizione all blocco pre-header del relativo loop.
+     * Funzione che, dato un insieme di istruzioni movable, le sposta dalla loro posizione al blocco pre-header del relativo loop.
      * Riceve in input il loop e l'insieme delle istruzioni movable.
      * 
      * Per ciascuna istruzione verifica se questa ha delle dipendenze (deve essere successiva) ad un'altra istruzione movable
      * del set.
-     * - Se l'istruzione non ha dipendenze la sposta nel pre-heder
+     * - Se l'istruzione non ha dipendenze la sposta nel pre-header
      * - Se l'istruzione ha dipendenze la ignora temporaneamente e prosegue con l'analisi delle successive.
-     *  (Aspetta che la istruzione che crea la dipendenza venga mossa)
+     *  (Aspetta che l'istruzione che crea la dipendenza venga mossa)
      * 
-     * L'intera funzione ripete fino a che tutte le istruzioni sono state spostate nel pre-heder, garantendo così il corretto
+     * L'intera funzione si ripete fino a che tutte le istruzioni sono state spostate nel pre-header, garantendo così il corretto
      * ordine delle dipendenze
      */
     void moveInstructions(SmallPtrSet<Instruction *, 10> &codeMotionInstructions, Loop *LL){
@@ -273,7 +274,7 @@ namespace
         while(!codeMotionInstructions.empty()){
             for(Instruction* moveableInstruction: codeMotionInstructions){
 
-                // se una istruzione ha dipendenze rispetto ad un'altra istruzione movable la ignoro temporaneamente 
+                // se un'istruzione ha dipendenze rispetto ad un'altra istruzione movable la ignoro temporaneamente 
                 if(!hasDependencies(moveableInstruction,  codeMotionInstructions)){
                     // se non ha dipendenze la sposto nel blocco pre-header e la rimuovo dal set
                     moveableInstruction->removeFromParent();
@@ -287,15 +288,15 @@ namespace
 
     /**
      * Funzione che analizza l'intero loop e i suoi subloops.
-     * Per ciascuno dei subloops si richiama la funzione ricorsivamenete.
+     * Per ciascuno dei subloops si richiama la funzione ricorsivamente.
      * 
      * Per ciascun loop si richiama :
      * - findLoopInvariant che trova le istruzioni loop invariant e le inserisce nell'omonimo array
      * - verifyCodeMotion che verifica quali fra le istruzioni loop invariant precedentemente trovare sono movable
-     * - move instruction che muove le istruzioni definite come movable dalla funzione precedente
+     * - moveInstructions che muove le istruzioni definite come movable dalla funzione precedente
      * 
      * Una volta analizzato ciascun loop inserisce i propri blocchi dentro toSkip per fare in modo che i loop
-     * padre non ri-analizzino il subloops
+     * padre non ri-analizzino i subloops
      */
     void analyzeLoop(Loop *const LL, SmallPtrSet<BasicBlock *, 10> &toSkip, DominatorTree &DT){
         SmallVector<Instruction *, 10> loopInvariantInstructions; // vettore che contiene le istruzioni loop invariant
@@ -309,7 +310,7 @@ namespace
         errs() << "\n---------------------------\n";
         errs() <<"\nLoop invariant instructions: \n";
 
-        // trovo le funzioni loop invariant con la relativa funzione
+        // trovo le istruzioni loop invariant con la relativa funzione
         findLoopInvariant(LL, toSkip, loopInvariantInstructions, DT);
         errs() << "\n\nVerifica delle movable instructions:\n";
 
@@ -342,7 +343,7 @@ namespace
         // corresponding pass manager (to be queried if need be)
         PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM)
         {   
-            // ottengo le referenze del LoopInfo e del dominator tree per le analisi dei loop e delel proprietà di dominanza
+            // ottengo le referenze del LoopInfo e del dominator tree per le analisi dei loop e delle proprietà di dominanza
             LoopInfo &LI = AM.getResult<LoopAnalysis>(F);
             DominatorTree &DT = AM.getResult<DominatorTreeAnalysis>(F);
 
