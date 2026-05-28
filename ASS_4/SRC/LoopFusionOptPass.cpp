@@ -20,42 +20,47 @@ using namespace llvm;
 namespace
 {
     
-    Loop* getAdjacentLoop(Loop* LL, LoopInfo &LI, SmallVector<Loop* , 10> levelLoops){
-        if(auto *guardedBranch = dyn_cast<CondBrInst>(LL->getLoopGuardBranch())){
-            BasicBlock exitGuardedBlock = guardedBranch->getSuccessor(0) == LL->getLoopPreheader()? guardedBranch->getSuccessor(1):guardedBranch->getSuccessor(0);
-            for(Loop* otherLoop: levelLoops){
-                if(LL == otherLoop)
-                    continue;
+    bool areNoPreHeaderInstruction(Loop* loop){
+        BasicBlock *preHeader = loop->getLoopPreheader();
+        Instruction &firstPreHInstruction = preHeader->front();
+
+        if( auto* branchToHeader = dyn_cast<BranchInst>(&firstPreHInstruction)){
+            if (branchToHeader->isUnconditional()) {
+                BasicBlock *possibleHeader = branchToHeader->getSuccessor(0);
+                if(possibleHeader == loop->getHeader())
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    bool verifyAdjacentLoops(Loop* first, Loop* second, LoopInfo &LI){
+        if(auto *firstGuarded = first->getLoopGuardBranch()){
+            errs() << "First loop is guarded\n";
+            if(BranchInst *firstGuardedBranch = dyn_cast<BranchInst>(firstGuarded)){
+                BasicBlock *exitFirstGuardedBlock = (firstGuardedBranch->getSuccessor(0) == first->getLoopPreheader())
+                ? firstGuardedBranch->getSuccessor(1)
+                :firstGuardedBranch->getSuccessor(0);
                 
-                if(auto *otherLoopGuardedBranch = dyn_cast<CondBrInst>(otherLoop->getLoopGuardBranch())){
-                    BasicBlock otherLoopGuardedBlock = otherLoop->getParent();
-                    if(otherLoopGuardedBlock == exitGuardedBlock)
-                        return otherLoop;
+                if(auto *secondLoopGuarded = second->getLoopGuardBranch()){
+                    if(BranchInst *secondLoopGuardedBranch = dyn_cast<BranchInst>(secondLoopGuarded)){
+                        BasicBlock *secondLoopGuardedBlock = secondLoopGuardedBranch->getParent();
+                        if(secondLoopGuardedBlock != exitFirstGuardedBlock)
+                            return false;
+                        
+                        return areNoPreHeaderInstruction(second);
+                    }
                 }
             }
-            return nullptr;
+            return false;
         }else{
-            BasicBlock exitLoopBlock = LL->getExitBlock();
+            BasicBlock *exitLoopBlock = first->getExitBlock();
 
-            for(Loop* otherLoop: levelLoops){
-                if(LL == otherLoop)
-                    continue;
-
-                BasicBlock otherLoopPreHeader = otherLoop->getLoopPreheader();
-                if( otherLoopPreHeader != exitLoopBlock)
-                    continue;
-                
-                Instruction* firstInstruction = otherLoopPreHeader.front();
-                if( auto* possibleBranchToHeader = dyn_cast<UncondBrInst>(firstInstruction)){
-                    BasicBlock possibleHeader = possibleBranchToHeader->getSuccessor();
-                    if(possibleHeader == otherLoop->getHeader())
-                        return otherLoop;
-                    return nullptr;
-                }else
-                    return nullptr;
-                
-            }
-            return nullptr;
+            BasicBlock *secondLoopPreHeader = second->getLoopPreheader();
+            if( secondLoopPreHeader != exitLoopBlock)
+                return false;
+            
+            return areNoPreHeaderInstruction(second);
         }
     }
 
@@ -66,37 +71,74 @@ namespace
         if(guarded){
             // verifico che la veridicità della prima istruzione implica la veridicità della seconda
             // ex: se la prima è n>10 e la seconda n>5 --> allora è true.
+            BasicBlock *firstGuard = first->getLoopGuardBranch()->getParent();
+            BasicBlock *secondGuard = second->getLoopGuardBranch()->getParent();
 
-            BranchInst* firstGuardedBranchCondition = first->getLoopGuardBranch(); // FoundCondValue
-            Value* secondGuardedBranchCondition = second->getLoopGuardBranch()->getCondition();
+            if(!DT.dominates(firstGuard, secondGuard) ||  !PDT.dominates(secondGuard, firstGuard) )
+                return false;
+                
+            Value* firstGuardedBranchCondition = first->getLoopGuardBranch()->getCondition();
+            Value* secondGuardedBranchCondition = second->getLoopGuardBranch()->getCondition(); 
 
-            if (auto *secondCompareInstruction = dyn_cast<ICmpInst>(secondGuardedBranchCondition)) {
-                auto* pred = cmpInst->getPredicate();
-                Value *leftHandSide = cmpInst->getOperand(0); 
-                Value *rightHandSide = cmpInst->getOperand(1);
+            auto *firstCompareInstruction = dyn_cast<ICmpInst>(firstGuardedBranchCondition);
+            auto *secondCompareInstruction = dyn_cast<ICmpInst>(secondGuardedBranchCondition);
 
-                const SCEV *SCEVleftHandSide = SE->getSCEV(leftHandSide);
-                const SCEV *SCEVrightHandSide = SE->getSCEV(rightHandSide);
+            if(!firstCompareInstruction || !secondCompareInstruction)
+                return false;
 
-                // SE->isImpliedCond(ICmpInst::Predicate Pred, const SCEV *LHS, const SCEV *RHS, const Value *FoundCondValue, bool Inverse = false, const Instruction *Context = nullptr)
-                if( !SE->isImpliedCond(pred, SCEVleftHandSide, SCEVrightHandSide ,firstGuardedBranchCondition, false) )
-                    return false;
-            }
-            else return false;
+            
+            auto secondPred = secondCompareInstruction->getPredicate();
+            Value *secondLeftHandSide = secondCompareInstruction->getOperand(0); 
+            Value *secondRightHandSide = secondCompareInstruction->getOperand(1);
+
+            const SCEV *SCEVsecondLeftHandSide = SE.getSCEV(secondLeftHandSide);
+            const SCEV *SCEVsecondRightHandSide = SE.getSCEV(secondRightHandSide);
+
+            /**
+             * Il contesto è un blocco che si prende in considerazione per la verifica della implicazione della 
+             * prima guardia sulla seconda
+             * Per ipotesi si suppone che si passi dal contesto, se si passa dal contesto si passa anche da tutti i suoi dominatori.
+             * se tra i dominatori compare una condizione, allora si sa che quella condizione era per forza vera o per forza falsa (dipende dal punto del contesto).
+             * In questo modo si considera quindi l'ipotesi iniziale su cui si vuole verificare l'implicazione.
+             * --> il contesto mi capisce quale condizione considerare (risale il dom tree) e la sua condizione iniziale su cui si vuole verificare 
+             * l'inferenza 
+             * 
+             * poi il metodo is knwon predicate at verifica l'effettiva implicazione tra le due codnizioni identificate
+             */
+            Instruction *CtxI = &first->getLoopPreheader()->front();
+            
+            //errs() << SE.isKnownPredicateAt(secondPred, SCEVsecondLeftHandSide, SCEVsecondRightHandSide, CtxI) <<"\n";
+            if (!SE.isKnownPredicateAt(secondPred, SCEVsecondLeftHandSide, SCEVsecondRightHandSide, CtxI))
+                return false;
+            return true;
+             
         }
-
-        return DT.dominates(first->getHeader(), second->getHeader()) && PDT->dominates(second->getHeader(), first->getHeader());
+        return DT.dominates(first->getHeader(), second->getHeader()) && PDT.dominates(second->getHeader(), first->getHeader());
     }
 
 
 
-    void LoopFusion(LoopInfo &LI, SmallVector<Loop* , 10> levelLoops, DominatorTree &DT, PostDominatorTree &PDT, ScalarEvolution &SE){
-        // verifica la loop fusion su Loops
-        for(Loop* LL: levelLoops){
-            Loop *adjacentLoop = getAdjacentLoop(LL, LI, levelLoops);
-            if(!adjacentLoop)
+    bool verifySameTripCount(Loop* first, Loop* second, ScalarEvolution &SE){
+        return false;
+    }
+
+
+
+    void LoopFusion(LoopInfo &LI, SmallVector<Loop* , 10> siblingLoops, DominatorTree &DT, PostDominatorTree &PDT, ScalarEvolution &SE){
+        
+        for(auto i=0; i<siblingLoops.size()-1; i++){
+            Loop* first = siblingLoops[i];
+            Loop* second = siblingLoops[i+1];
+
+            if(!verifyAdjacentLoops(first, second, LI))
                 continue;
-            if(!verifyControlFlowEquivalence(LL, adjacentLoop, DT, PDT, SE))
+            errs() << first->getName() << " and " << second->getName() << " are adjacent loops\n";
+
+            if(!verifyControlFlowEquivalence(first, second, DT, PDT, SE))
+                continue;
+
+            errs() << first->getName() << " and " << second->getName() << " are control flow equivalent \n";
+            if(!verifySameTripCount(first, second, SE))
                 continue;
             
         }
@@ -121,7 +163,20 @@ namespace
             PostDominatorTree &PDT = AM.getResult<PostDominatorTreeAnalysis>(F);
             ScalarEvolution &SE = AM.getResult<ScalarEvolutionAnalysis>(F);
 
-            for (auto *L : LI)
+            DenseMap<Loop*, SmallVector<Loop*, 10>> LoopSiblingsMap;
+            
+            for (auto *LL : LI.getLoopsInPreorder()){
+                LoopSiblingsMap[LL->getParentLoop()].push_back(LL);
+            }
+
+            
+            for(auto &[fatherLoop, LoopSiblings]: LoopSiblingsMap){
+                if(fatherLoop)
+                    errs() << "Father loop: "<<fatherLoop->getName()<<"\n";
+                else
+                    errs() << "Top level loop \n";
+                LoopFusion(LI, LoopSiblings, DT, PDT, SE);
+            }
          
             return PreservedAnalyses::all();
         };
