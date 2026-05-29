@@ -7,64 +7,51 @@ target triple = "arm64-apple-macosx16.0.0"
 define void @fun(i32 noundef %d, i32 noundef %k) #0 {
 entry:
   %b = alloca [10 x i32], align 4
-  %cmp = icmp slt i32 %d, %k
-  br i1 %cmp, label %if.then, label %if.end
-
-if.then:                                          ; preds = %entry
-  br label %do.body
-
-do.body:                                          ; preds = %do.cond, %if.then
-  %i.0 = phi i32 [ 0, %if.then ], [ %inc, %do.cond ]
-  %inc = add nsw i32 %i.0, 1
-  br label %do.cond
-
-do.cond:                                          ; preds = %do.body
-  %cmp1 = icmp slt i32 %inc, %d
-  br i1 %cmp1, label %do.body, label %do.end, !llvm.loop !6
-
-do.end:                                           ; preds = %do.cond
-  br label %if.end
-
-if.end:                                           ; preds = %do.end, %entry
-  %add = add nsw i32 %k, 1
-  %sub = sub nsw i32 %add, 1
-  %cmp2 = icmp slt i32 %d, %sub
-  br i1 %cmp2, label %if.then3, label %if.end9
-
-if.then3:                                         ; preds = %if.end
-  br label %do.body4
-
-do.body4:                                         ; preds = %do.cond6, %if.then3
-  %j.0 = phi i32 [ 0, %if.then3 ], [ %inc5, %do.cond6 ]
-  %inc5 = add nsw i32 %j.0, 1
-  br label %do.cond6
-
-do.cond6:                                         ; preds = %do.body4
-  %cmp7 = icmp slt i32 %inc5, %d
-  br i1 %cmp7, label %do.body4, label %do.end8, !llvm.loop !8
-
-do.end8:                                          ; preds = %do.cond6
-  br label %if.end9
-
-if.end9:                                          ; preds = %do.end8, %if.end
   br label %for.cond
 
-for.cond:                                         ; preds = %for.inc, %if.end9
-  %i10.0 = phi i32 [ 0, %if.end9 ], [ %inc12, %for.inc ]
-  %cmp11 = icmp slt i32 %i10.0, %d
-  br i1 %cmp11, label %for.body, label %for.end
+for.cond:                                         ; preds = %for.inc, %entry
+  %i.0 = phi i32 [ 0, %entry ], [ %inc, %for.inc ]
+  %cmp = icmp slt i32 %i.0, 5
+  br i1 %cmp, label %for.body, label %for.end
 
 for.body:                                         ; preds = %for.cond
-  %idxprom = sext i32 %i10.0 to i64
+  %idxprom = sext i32 %i.0 to i64
   %arrayidx = getelementptr inbounds [10 x i32], ptr %b, i64 0, i64 %idxprom
-  store i32 16, ptr %arrayidx, align 4
+  store i32 44, ptr %arrayidx, align 4
   br label %for.inc
 
 for.inc:                                          ; preds = %for.body
-  %inc12 = add nsw i32 %i10.0, 1
-  br label %for.cond, !llvm.loop !9
+  %inc = add nsw i32 %i.0, 1
+  br label %for.cond, !llvm.loop !6
 
 for.end:                                          ; preds = %for.cond
+  br label %for.cond2
+
+for.cond2:                                        ; preds = %for.inc11, %for.end
+  %i1.0 = phi i32 [ 1, %for.end ], [ %inc12, %for.inc11 ]
+  %add = add nsw i32 5, 1
+  %cmp3 = icmp slt i32 %i1.0, %add
+  br i1 %cmp3, label %for.body4, label %for.end13
+
+for.body4:                                        ; preds = %for.cond2
+  %sub = sub nsw i32 %i1.0, 1
+  %idxprom5 = sext i32 %sub to i64
+  %arrayidx6 = getelementptr inbounds [10 x i32], ptr %b, i64 0, i64 %idxprom5
+  %0 = load i32, ptr %arrayidx6, align 4
+  %add7 = add nsw i32 16, %0
+  %sub8 = sub nsw i32 %i1.0, 1
+  %idxprom9 = sext i32 %sub8 to i64
+  %arrayidx10 = getelementptr inbounds [10 x i32], ptr %b, i64 0, i64 %idxprom9
+  store i32 %add7, ptr %arrayidx10, align 4
+  br label %for.inc11
+
+for.inc11:                                        ; preds = %for.body4
+  %inc12 = add nsw i32 %i1.0, 1
+  br label %for.cond2, !llvm.loop !8
+
+for.end13:                                        ; preds = %for.cond2
+  %arrayidx14 = getelementptr inbounds [10 x i32], ptr %b, i64 0, i64 3
+  %1 = load i32, ptr %arrayidx14, align 4
   ret void
 }
 
@@ -82,4 +69,3 @@ attributes #0 = { noinline nounwind ssp uwtable(sync) "frame-pointer"="non-leaf"
 !6 = distinct !{!6, !7}
 !7 = !{!"llvm.loop.mustprogress"}
 !8 = distinct !{!8, !7}
-!9 = distinct !{!9, !7}

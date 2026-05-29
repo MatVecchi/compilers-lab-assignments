@@ -11,6 +11,7 @@
 #include "llvm/IR/Dominators.h"
 #include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/Analysis/DependenceAnalysis.h"
 #include <iostream>
 #include <string>
 #include <unordered_map>
@@ -94,6 +95,29 @@ namespace
             const SCEV *SCEVsecondLeftHandSide = SE.getSCEV(secondLeftHandSide);
             const SCEV *SCEVsecondRightHandSide = SE.getSCEV(secondRightHandSide);
 
+            /* 
+            auto firstPred = firstCompareInstruction->getPredicate();
+            Value *firstLeftHandSide = firstCompareInstruction->getOperand(0); 
+            Value *firstRightHandSide = firstCompareInstruction->getOperand(1);
+
+            const SCEV *SCEVfirstLeftHandSide = SE.getSCEV(firstLeftHandSide);
+            const SCEV *SCEVfirstRightHandSide = SE.getSCEV(firstRightHandSide);
+
+            const SCEV* firstOperandDIFF = SE.getMinusSCEV(
+                SCEVfirstLeftHandSide,
+                SCEVfirstRightHandSide
+            );
+
+            const SCEV* secondOperandDIFF = SE.getMinusSCEV(
+                SCEVsecondLeftHandSide,
+                SCEVsecondRightHandSide
+            );
+
+            if(firstOperandDIFF == secondOperandDIFF && firstPred == secondPred)
+                return true;
+
+            */
+
             /**
              * Il contesto è un blocco che si prende in considerazione per la verifica della implicazione della 
              * prima guardia sulla seconda
@@ -107,7 +131,7 @@ namespace
              */
             Instruction *CtxI = &first->getLoopPreheader()->front();
             
-            //errs() << SE.isKnownPredicateAt(secondPred, SCEVsecondLeftHandSide, SCEVsecondRightHandSide, CtxI) <<"\n";
+            errs() << SE.isKnownPredicateAt(secondPred, SCEVsecondLeftHandSide, SCEVsecondRightHandSide, CtxI) <<"\n";
             if (!SE.isKnownPredicateAt(secondPred, SCEVsecondLeftHandSide, SCEVsecondRightHandSide, CtxI))
                 return false;
             return true;
@@ -119,12 +143,82 @@ namespace
 
 
     bool verifySameTripCount(Loop* first, Loop* second, ScalarEvolution &SE){
-        return false;
+        // Da chiedere a lezione per la gestione degli overflow
+        return SE.getBackedgeTakenCount(first) == SE.getBackedgeTakenCount(second);
+    }
+
+    SmallVector<Instruction *, 10> getLoadStore(Loop* LL){
+        SmallVector<Instruction *, 10> loadStore;
+        for(auto *BB: LL->getBlocks()){
+            for(auto &I: *BB){
+                if(auto *loadInstr = dyn_cast<LoadInst>(&I))
+                    loadStore.push_back(loadInstr);
+                if(auto *storeInstr = dyn_cast<StoreInst>(&I))
+                    loadStore.push_back(storeInstr);
+            }
+        }
+        return loadStore;
+    }
+
+    const SCEV* getBaseIteration(const SCEV *S){
+        if(auto *pointerIterationRange = dyn_cast<SCEVAddRecExpr>(S))
+            return pointerIterationRange->getStart();
+        return S;
+    }
+
+    bool verifyDependencies(Loop* first, Loop* second, DependenceInfo &DI, ScalarEvolution &SE){
+        SmallVector<Instruction *, 10> firstLS = getLoadStore(first);
+        SmallVector<Instruction *, 10> secondLS = getLoadStore(second);
+
+        unsigned currLevel = first->getLoopDepth();
+        for(Instruction *firstInst: firstLS){
+            for(Instruction* secondInst: secondLS){
+
+                // Verifico dipendenza
+                auto dep = DI.depends(firstInst, secondInst, true);
+                if(!dep) continue;
+
+                // Verifico impossibilità di analisi (confused)
+                if(dep->isConfused()) return false;
+
+                // read e read sono sempre safe
+                if(isa<LoadInst>(firstInst) && isa<LoadInst>(secondInst))
+                    continue;
+                
+
+                // estraggo come il primo e il secondo ciclo accedono alla struttura dati utilizzando gli address e gli offset
+                // prendo la prima istruzione (base o start come riferimento per il calcolo)
+                const SCEV *firstLoopIteration = getBaseIteration( SE.getSCEV(getPointerOperand(firstInst)));
+                const SCEV *secondLoopIteration = getBaseIteration( SE.getSCEV(getPointerOperand(secondInst)));
+
+                // calcolo il delta come secondo - primo --> se questo è positivo significa che è una backward direction
+                // offset della seconda > della prima
+                const SCEV *delta = SE.getMinusSCEV(secondLoopIteration, firstLoopIteration);
+
+                errs() << *firstInst <<" --> loop data space pattern: " << *firstLoopIteration << "\n";
+                errs() << *secondInst << " --> loop data space pattern: " << *secondLoopIteration << "\n";
+
+                errs() << "Delta: " << *delta << "\n";
+                if(SE.isKnownPositive(delta))
+                    return false;
+
+                /*
+                if(!dep->isConfused()){
+                    unsigned Dir = dep->getDirection(currLevel, true);
+                    if(Dir & Dependence::DVEntry::GT)
+                        return false;
+                    continue;
+                }
+                */
+
+            }
+        }
+        return true;
     }
 
 
 
-    void LoopFusion(LoopInfo &LI, SmallVector<Loop* , 10> siblingLoops, DominatorTree &DT, PostDominatorTree &PDT, ScalarEvolution &SE){
+    void LoopFusion(LoopInfo &LI, SmallVector<Loop* , 10> siblingLoops, DominatorTree &DT, PostDominatorTree &PDT, ScalarEvolution &SE, DependenceInfo &DI){
         
         for(auto i=0; i<siblingLoops.size()-1; i++){
             Loop* first = siblingLoops[i];
@@ -136,10 +230,15 @@ namespace
 
             if(!verifyControlFlowEquivalence(first, second, DT, PDT, SE))
                 continue;
-
             errs() << first->getName() << " and " << second->getName() << " are control flow equivalent \n";
+            
             if(!verifySameTripCount(first, second, SE))
                 continue;
+            errs() << first->getName() << " and " << second->getName() << " have the same trip count \n";
+            
+            if(!verifyDependencies(first, second, DI, SE))
+                continue;
+            errs() << first->getName() << " and " << second->getName() << " can be fused \n";
             
         }
 
@@ -162,6 +261,7 @@ namespace
             DominatorTree &DT = AM.getResult<DominatorTreeAnalysis>(F);
             PostDominatorTree &PDT = AM.getResult<PostDominatorTreeAnalysis>(F);
             ScalarEvolution &SE = AM.getResult<ScalarEvolutionAnalysis>(F);
+            DependenceInfo &DI = AM.getResult<DependenceAnalysis>(F);
 
             DenseMap<Loop*, SmallVector<Loop*, 10>> LoopSiblingsMap;
             
@@ -175,7 +275,7 @@ namespace
                     errs() << "Father loop: "<<fatherLoop->getName()<<"\n";
                 else
                     errs() << "Top level loop \n";
-                LoopFusion(LI, LoopSiblings, DT, PDT, SE);
+                LoopFusion(LI, LoopSiblings, DT, PDT, SE, DI);
             }
          
             return PreservedAnalyses::all();
