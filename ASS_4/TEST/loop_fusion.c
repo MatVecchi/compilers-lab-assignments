@@ -2,22 +2,25 @@ void fun(int d, int k){
     int a[10];
     int b[10];
 
-    /*
-    if(d<k){
+    d=5;
+    int l = d+100;
+    k = 10;
+    
+    if(d < k){
         int i=0;
         do{
             i++;
         }while(i<d);
     }
-    if(d<k){
+    if(d < k ){
         int j=0;
         do{
             j++;
-        }while(j<d+1);
+        }while(j<d);
     }
-    */
+    
 
-    d = 5;
+    /*d = 5;
 
     for(int i=0; i<d; i++){
         b[i] = 44;
@@ -26,5 +29,5 @@ void fun(int d, int k){
         b[i-1] = 16 + b[i-1]; 
     }
     
-    int x = b[3];
+    int x = b[3];*/
 }

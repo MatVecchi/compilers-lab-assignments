@@ -6,52 +6,45 @@ target triple = "arm64-apple-macosx16.0.0"
 ; Function Attrs: noinline nounwind ssp uwtable(sync)
 define void @fun(i32 noundef %d, i32 noundef %k) #0 {
 entry:
-  %b = alloca [10 x i32], align 4
-  br label %for.cond
+  %add = add nsw i32 5, 100
+  %cmp = icmp slt i32 5, 10
+  br i1 %cmp, label %if.then, label %if.end
 
-for.cond:                                         ; preds = %for.inc, %entry
-  %i.0 = phi i32 [ 0, %entry ], [ %inc, %for.inc ]
-  %cmp = icmp slt i32 %i.0, 5
-  br i1 %cmp, label %for.body, label %for.end
+if.then:                                          ; preds = %entry
+  br label %do.body
 
-for.body:                                         ; preds = %for.cond
-  %idxprom = sext i32 %i.0 to i64
-  %arrayidx = getelementptr inbounds [10 x i32], ptr %b, i64 0, i64 %idxprom
-  store i32 44, ptr %arrayidx, align 4
-  br label %for.inc
-
-for.inc:                                          ; preds = %for.body
+do.body:                                          ; preds = %do.cond, %if.then
+  %i.0 = phi i32 [ 0, %if.then ], [ %inc, %do.cond ]
   %inc = add nsw i32 %i.0, 1
-  br label %for.cond, !llvm.loop !6
+  br label %do.cond
 
-for.end:                                          ; preds = %for.cond
-  br label %for.cond2
+do.cond:                                          ; preds = %do.body
+  %cmp1 = icmp slt i32 %inc, 5
+  br i1 %cmp1, label %do.body, label %do.end, !llvm.loop !6
 
-for.cond2:                                        ; preds = %for.inc11, %for.end
-  %i1.0 = phi i32 [ 1, %for.end ], [ %inc12, %for.inc11 ]
-  %add = add nsw i32 5, 1
-  %cmp3 = icmp slt i32 %i1.0, %add
-  br i1 %cmp3, label %for.body4, label %for.end13
+do.end:                                           ; preds = %do.cond
+  br label %if.end
 
-for.body4:                                        ; preds = %for.cond2
-  %sub = sub nsw i32 %i1.0, 1
-  %idxprom5 = sext i32 %sub to i64
-  %arrayidx6 = getelementptr inbounds [10 x i32], ptr %b, i64 0, i64 %idxprom5
-  %0 = load i32, ptr %arrayidx6, align 4
-  %add7 = add nsw i32 16, %0
-  %sub8 = sub nsw i32 %i1.0, 1
-  %idxprom9 = sext i32 %sub8 to i64
-  %arrayidx10 = getelementptr inbounds [10 x i32], ptr %b, i64 0, i64 %idxprom9
-  store i32 %add7, ptr %arrayidx10, align 4
-  br label %for.inc11
+if.end:                                           ; preds = %do.end, %entry
+  %cmp2 = icmp slt i32 5, 10
+  br i1 %cmp2, label %if.then3, label %if.end9
 
-for.inc11:                                        ; preds = %for.body4
-  %inc12 = add nsw i32 %i1.0, 1
-  br label %for.cond2, !llvm.loop !8
+if.then3:                                         ; preds = %if.end
+  br label %do.body4
 
-for.end13:                                        ; preds = %for.cond2
-  %arrayidx14 = getelementptr inbounds [10 x i32], ptr %b, i64 0, i64 3
-  %1 = load i32, ptr %arrayidx14, align 4
+do.body4:                                         ; preds = %do.cond6, %if.then3
+  %j.0 = phi i32 [ 0, %if.then3 ], [ %inc5, %do.cond6 ]
+  %inc5 = add nsw i32 %j.0, 1
+  br label %do.cond6
+
+do.cond6:                                         ; preds = %do.body4
+  %cmp7 = icmp slt i32 %inc5, 5
+  br i1 %cmp7, label %do.body4, label %do.end8, !llvm.loop !8
+
+do.end8:                                          ; preds = %do.cond6
+  br label %if.end9
+
+if.end9:                                          ; preds = %do.end8, %if.end
   ret void
 }
 

@@ -45,7 +45,18 @@ namespace
                 
                 if(auto *secondLoopGuarded = second->getLoopGuardBranch()){
                     if(BranchInst *secondLoopGuardedBranch = dyn_cast<BranchInst>(secondLoopGuarded)){
+                        errs() << "Second loop is guarded" << "\n";
                         BasicBlock *secondLoopGuardedBlock = secondLoopGuardedBranch->getParent();
+                        Instruction *firstGuardInstruction = &secondLoopGuardedBlock->front();
+
+                        bool compareAndBranch = ( isa<CmpInst>(firstGuardInstruction) && (firstGuardInstruction->getNextNode() == secondLoopGuardedBranch) );
+                        bool directBranch = ( secondLoopGuardedBranch == firstGuardInstruction );
+
+                        if( !compareAndBranch && !directBranch)
+                            return false;
+
+                        
+                        errs() << "Firts instruction in guard\n";
                         if(secondLoopGuardedBlock != exitFirstGuardedBlock)
                             return false;
                         
@@ -147,12 +158,14 @@ namespace
         return SE.getBackedgeTakenCount(first) == SE.getBackedgeTakenCount(second);
     }
 
-    SmallVector<Instruction *, 10> getLoadStore(Loop* LL){
+    SmallVector<Instruction *, 10> getLoadStore(Loop* LL, bool getLoad){
         SmallVector<Instruction *, 10> loadStore;
         for(auto *BB: LL->getBlocks()){
             for(auto &I: *BB){
-                if(auto *loadInstr = dyn_cast<LoadInst>(&I))
-                    loadStore.push_back(loadInstr);
+                if(getLoad){
+                    if(auto *loadInstr = dyn_cast<LoadInst>(&I))
+                        loadStore.push_back(loadInstr);
+                }
                 if(auto *storeInstr = dyn_cast<StoreInst>(&I))
                     loadStore.push_back(storeInstr);
             }
@@ -160,17 +173,13 @@ namespace
         return loadStore;
     }
 
-    const SCEV* getBaseIteration(const SCEV *S){
-        if(auto *pointerIterationRange = dyn_cast<SCEVAddRecExpr>(S))
-            return pointerIterationRange->getStart();
-        return S;
-    }
+    
 
     bool verifyDependencies(Loop* first, Loop* second, DependenceInfo &DI, ScalarEvolution &SE){
-        SmallVector<Instruction *, 10> firstLS = getLoadStore(first);
-        SmallVector<Instruction *, 10> secondLS = getLoadStore(second);
+        SmallVector<Instruction *, 10> firstLS = getLoadStore(first, false);
+        SmallVector<Instruction *, 10> secondLS = getLoadStore(second, true);
 
-        unsigned currLevel = first->getLoopDepth();
+        
         for(Instruction *firstInst: firstLS){
             for(Instruction* secondInst: secondLS){
 
@@ -181,15 +190,11 @@ namespace
                 // Verifico impossibilità di analisi (confused)
                 if(dep->isConfused()) return false;
 
-                // read e read sono sempre safe
-                if(isa<LoadInst>(firstInst) && isa<LoadInst>(secondInst))
-                    continue;
-                
 
                 // estraggo come il primo e il secondo ciclo accedono alla struttura dati utilizzando gli address e gli offset
                 // prendo la prima istruzione (base o start come riferimento per il calcolo)
-                const SCEV *firstLoopIteration = getBaseIteration( SE.getSCEV(getPointerOperand(firstInst)));
-                const SCEV *secondLoopIteration = getBaseIteration( SE.getSCEV(getPointerOperand(secondInst)));
+                const SCEV *firstLoopIteration = SE.getSCEVAtScope(getPointerOperand(firstInst), first->getParentLoop());
+                const SCEV *secondLoopIteration =  SE.getSCEVAtScope(getPointerOperand(secondInst), second->getParentLoop());
 
                 // calcolo il delta come secondo - primo --> se questo è positivo significa che è una backward direction
                 // offset della seconda > della prima
@@ -202,14 +207,6 @@ namespace
                 if(SE.isKnownPositive(delta))
                     return false;
 
-                /*
-                if(!dep->isConfused()){
-                    unsigned Dir = dep->getDirection(currLevel, true);
-                    if(Dir & Dependence::DVEntry::GT)
-                        return false;
-                    continue;
-                }
-                */
 
             }
         }
