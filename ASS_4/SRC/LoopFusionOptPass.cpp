@@ -53,30 +53,40 @@ namespace
         return exitGuardedBlock;
     }
 
-    BranchInst *getManualLoopGuard(Loop *L) {
+    BranchInst *getManualLoopGuard(Loop *L, LoopInfo &LI) {
         BasicBlock *preheader = L->getLoopPreheader();
-        if (!preheader) return nullptr;
+        if (!preheader)
+            return nullptr;
 
-        // Il blocco immediatamente prima del preheader
         BasicBlock *pred = preheader->getSinglePredecessor();
-        if (!pred) return nullptr;
+        if (!pred)
+            return nullptr;
 
-        // Controlliamo se questo blocco finisce con un branch condizionale (il nostro if)
-        if (BranchInst *bi = dyn_cast<BranchInst>(pred->getTerminator())) {
-            if (bi->isConditional()) {
-                return bi; // Trovato! Questa è la nostra guardia manuale
-            }
+        // Se pred è header di un loop, probabilmente è una condizione di loop,
+        // non una guardia manuale.
+        if (Loop *PredLoop = LI.getLoopFor(pred)) {
+            if (PredLoop->getHeader() == pred)
+                return nullptr;
         }
-        return nullptr;
+
+        auto *BI = dyn_cast<BranchInst>(pred->getTerminator());
+        if (!BI || !BI->isConditional())
+            return nullptr;
+
+        if (BI->getSuccessor(0) != preheader &&
+            BI->getSuccessor(1) != preheader)
+            return nullptr;
+
+        return BI;
     }
 
     bool verifyAdjacentLoops(Loop* first, Loop* second, LoopInfo &LI){
-        if(auto *firstGuarded = getManualLoopGuard(first)){
+        if(auto *firstGuarded = getManualLoopGuard(first, LI)){
             errs() << "First loop is guarded\n";
             if(BranchInst *firstGuardedBranch = dyn_cast<BranchInst>(firstGuarded)){
                 BasicBlock *exitFirstGuardedBlock = getExitFromGuard(firstGuardedBranch, first);
                 
-                if(auto *secondLoopGuarded = getManualLoopGuard(second)){
+                if(auto *secondLoopGuarded = getManualLoopGuard(second, LI)){
                     if(BranchInst *secondLoopGuardedBranch = dyn_cast<BranchInst>(secondLoopGuarded)){
                         errs() << "Second loop is guarded" << "\n";
                         BasicBlock *secondLoopGuardedBlock = secondLoopGuardedBranch->getParent();
@@ -110,9 +120,9 @@ namespace
     }
 
 
-    bool verifyControlFlowEquivalence(Loop* first, Loop* second, DominatorTree &DT, PostDominatorTree &PDT, ScalarEvolution &SE){
-        BranchInst* firstGuardBranch = getManualLoopGuard(first);
-        BranchInst* secondGuardBranch = getManualLoopGuard(second);
+    bool verifyControlFlowEquivalence(Loop* first, Loop* second, DominatorTree &DT, PostDominatorTree &PDT, ScalarEvolution &SE, LoopInfo &LI){
+        BranchInst* firstGuardBranch = getManualLoopGuard(first, LI);
+        BranchInst* secondGuardBranch = getManualLoopGuard(second, LI);
         bool guarded = (firstGuardBranch && secondGuardBranch);
 
         if(guarded){
@@ -411,9 +421,9 @@ namespace
         return true;
     }
 
-    bool bypassSecondGuard(Loop* first, Loop* second){
-        BranchInst *firstGuardedBranch = getManualLoopGuard(first);
-        BranchInst *secondGuardedBranch = getManualLoopGuard(second);
+    bool bypassSecondGuard(Loop* first, Loop* second, LoopInfo &LI){
+        BranchInst *firstGuardedBranch = getManualLoopGuard(first, LI);
+        BranchInst *secondGuardedBranch = getManualLoopGuard(second, LI);
 
         if(!firstGuardedBranch || !secondGuardedBranch)
             return true;
@@ -436,7 +446,7 @@ namespace
                 continue;
             errs() << first->getName() << " and " << second->getName() << " are adjacent loops\n";
  
-            if(!verifyControlFlowEquivalence(first, second, DT, PDT, SE))
+            if(!verifyControlFlowEquivalence(first, second, DT, PDT, SE, LI))
                 continue;
             errs() << first->getName() << " and " << second->getName() << " are control flow equivalent \n";  
 
@@ -460,10 +470,9 @@ namespace
             if(!secondLoopHeaderToLatch(second))
                 continue;
             
-            if(!bypassSecondGuard(first, second))
+            if(!bypassSecondGuard(first, second, LI))
                 continue;
 
-            
             inductionVariableFusion(firstIV, secondIV, SE);
         }
 

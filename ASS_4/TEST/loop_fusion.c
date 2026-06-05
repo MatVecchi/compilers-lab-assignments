@@ -25,11 +25,11 @@ void fun(int d, int k){
     d = 5;
     int kplus = k+5;
 
-    if(d < k){
+    /*if(d < k){
         for(int i=0; i<d; i++){
             b[i] = 44;
         }
-    }
+    }*/
 
     if(d < kplus){
         for(int i=1; i<d+1; i++){
@@ -40,8 +40,12 @@ void fun(int d, int k){
                 a[i]=44;
             }
             for(int n=0; n<10; n++){
+                a[i]=55;
+            }
+            for(int n=0; n<10; n++){
                 a[i]=16;
             }
+            
         }
     }
     
