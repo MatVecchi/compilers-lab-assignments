@@ -6,45 +6,75 @@ target triple = "arm64-apple-macosx16.0.0"
 ; Function Attrs: noinline nounwind ssp uwtable(sync)
 define void @fun(i32 noundef %d, i32 noundef %k) #0 {
 entry:
+  %b = alloca [10 x i32], align 4
+  %a17 = alloca [20 x i32], align 4
   %add = add nsw i32 5, 100
+  %add1 = add nsw i32 10, 5
   %cmp = icmp slt i32 5, 10
-  br i1 %cmp, label %if.then, label %if.end
+  br i1 %cmp, label %if.then, label %if.end38
 
 if.then:                                          ; preds = %entry
-  br label %do.body
+  br label %for.cond
 
-do.body:                                          ; preds = %do.cond, %if.then
-  %i.0 = phi i32 [ 0, %if.then ], [ %inc, %do.cond ]
-  %inc = add nsw i32 %i.0, 1
-  br label %do.cond
+for.cond:                                         ; preds = %for.inc, %if.then
+  %i2.0 = phi i32 [ 0, %if.then ], [ %inc, %for.inc ]
+  %fused.iv = add i32 %i2.0, 1
+  %cmp3 = icmp slt i32 %i2.0, 5
+  br i1 %cmp3, label %for.body, label %for.end37
 
-do.cond:                                          ; preds = %do.body
-  %cmp1 = icmp slt i32 %inc, 5
-  br i1 %cmp1, label %do.body, label %do.end, !llvm.loop !6
+for.body:                                         ; preds = %for.cond
+  %idxprom = sext i32 %i2.0 to i64
+  %arrayidx = getelementptr inbounds [10 x i32], ptr %b, i64 0, i64 %idxprom
+  store i32 44, ptr %arrayidx, align 4
+  br label %for.body10
 
-do.end:                                           ; preds = %do.cond
-  br label %if.end
+for.inc:                                          ; preds = %for.end34
+  %inc = add nsw i32 %i2.0, 1
+  br label %for.cond, !llvm.loop !6
 
-if.end:                                           ; preds = %do.end, %entry
-  %cmp2 = icmp slt i32 5, 10
-  br i1 %cmp2, label %if.then3, label %if.end9
+for.body10:                                       ; preds = %for.body
+  %sub = sub nsw i32 %fused.iv, 1
+  %idxprom11 = sext i32 %sub to i64
+  %arrayidx12 = getelementptr inbounds [10 x i32], ptr %b, i64 0, i64 %idxprom11
+  %0 = load i32, ptr %arrayidx12, align 4
+  %add13 = add nsw i32 16, %0
+  %sub14 = sub nsw i32 %fused.iv, 1
+  %idxprom15 = sext i32 %sub14 to i64
+  %arrayidx16 = getelementptr inbounds [10 x i32], ptr %b, i64 0, i64 %idxprom15
+  store i32 %add13, ptr %arrayidx16, align 4
+  br label %for.cond18
 
-if.then3:                                         ; preds = %if.end
-  br label %do.body4
+for.cond18:                                       ; preds = %for.inc23, %for.body10
+  %n.0 = phi i32 [ 0, %for.body10 ], [ %inc24, %for.inc23 ]
+  %fused.iv1 = add i32 %n.0, 0
+  %cmp19 = icmp slt i32 %n.0, 10
+  br i1 %cmp19, label %for.body20, label %for.end34
 
-do.body4:                                         ; preds = %do.cond6, %if.then3
-  %j.0 = phi i32 [ 0, %if.then3 ], [ %inc5, %do.cond6 ]
-  %inc5 = add nsw i32 %j.0, 1
-  br label %do.cond6
+for.body20:                                       ; preds = %for.cond18
+  %idxprom21 = sext i32 %fused.iv to i64
+  %arrayidx22 = getelementptr inbounds [20 x i32], ptr %a17, i64 0, i64 %idxprom21
+  store i32 44, ptr %arrayidx22, align 4
+  br label %for.body29
 
-do.cond6:                                         ; preds = %do.body4
-  %cmp7 = icmp slt i32 %inc5, 5
-  br i1 %cmp7, label %do.body4, label %do.end8, !llvm.loop !8
+for.inc23:                                        ; preds = %for.body29
+  %inc24 = add nsw i32 %n.0, 1
+  br label %for.cond18, !llvm.loop !8
 
-do.end8:                                          ; preds = %do.cond6
-  br label %if.end9
+for.body29:                                       ; preds = %for.body20
+  %idxprom30 = sext i32 %fused.iv to i64
+  %arrayidx31 = getelementptr inbounds [20 x i32], ptr %a17, i64 0, i64 %idxprom30
+  store i32 16, ptr %arrayidx31, align 4
+  br label %for.inc23
 
-if.end9:                                          ; preds = %do.end8, %if.end
+for.end34:                                        ; preds = %for.cond18
+  br label %for.inc
+
+for.end37:                                        ; preds = %for.cond
+  br label %if.end38
+
+if.end38:                                         ; preds = %entry, %for.end37
+  %arrayidx39 = getelementptr inbounds [10 x i32], ptr %b, i64 0, i64 3
+  %1 = load i32, ptr %arrayidx39, align 4
   ret void
 }
 
