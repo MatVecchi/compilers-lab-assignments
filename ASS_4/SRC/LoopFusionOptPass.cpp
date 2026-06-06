@@ -21,21 +21,27 @@
 using namespace llvm;
 namespace
 {
-    
+    /**
+     * Funzione che verifica se nel preheader del loop passato come argomento sono presenti altre istruzioni oltre alla
+     * unconditioned branch instruction che porta all'header del loop.
+     * Ritorna true nel caso in cui non ci sono altre istruzioni, false altrimenti.
+     * 
+     * Per poter verificare la condizione si verifica che l'istruzione terminatore del preheader sia un
+     * branch incondizionato verso l'header del loop e e che il terminatore sia anche la prima istruzione (front)
+     * dell preheader
+     */
     bool areNoPreHeaderInstruction(Loop* loop){
         BasicBlock *preHeader = loop->getLoopPreheader();
         if (!preHeader) return false;
 
-        // 1. Prendi il terminatore del blocco (il branch finale)
+        // Ottengo il terminatore
         Instruction *terminator = preHeader->getTerminator();
         if (auto *branchToHeader = dyn_cast<BranchInst>(terminator)) {
             if (branchToHeader->isUnconditional()) {
                 // Verifica che salti all'header del loop
                 if (branchToHeader->getSuccessor(0) == loop->getHeader()) {
                     
-                    // 2. Controlla che il blocco sia effettivamente vuoto.
-                    // Un blocco è "vuoto" se la sua prima istruzione coincide con il terminatore
-                    // (ignorando le istruzioni di debug intrinseche se presenti).
+                    // verifico se il terminatore è anche la prima istruzione del preheader
                     if (&preHeader->front() == terminator) {
                         return true;
                     }
@@ -45,7 +51,14 @@ namespace
         return false;
     }
 
-
+    /**
+     * Funzione helper che, preso un guarded branch e il loop da esso protetto, ritorna il blocco di uscita della guardia.
+     * Per poter ottenere il blocco di uscita, verifica quale ramo della branch instruction (successore)
+     * porta all'header del loop e prende il successore opposto ad esso.
+     * 
+     * ex: se il successore 0 porta all'header del loop --> ritorna 1 
+     *     se il successore 1 porta all'header del loop --> ritorna 0
+     */
     BasicBlock *getExitFromGuard(BranchInst *guardedBranch, Loop *loop){
         BasicBlock *exitGuardedBlock = (guardedBranch->getSuccessor(0) == loop->getLoopPreheader())
                 ? guardedBranch->getSuccessor(1)
@@ -53,26 +66,71 @@ namespace
         return exitGuardedBlock;
     }
 
+    /**
+     * Funzione helper che preso un loop come argomento ritorna la branch instruction relativa alla guardia.
+     * (Se esiste)
+     *
+     * Nota: è stato necessario creare una funzione helper manuale e non utilizzando l'API di LLVM, poichè 
+     * LLVM riconosce le guardie solo ed unicamente nei loop ROTATED (dove la condizione di uscita è posta nel latch e 
+     * non nell'header).
+     * Non avendo trattato i ROTATED loops si è preferito creare una funzione manuale che ricava la guardia da qualsiasi loop 
+     * (anche non ruotato).
+     * 
+     * 
+     * Per poter ricavare la guardia si verifica se esiste un unico predecessore del preheader del loop e si cerca di ricavarne una branch instruction 
+     * condizionale.
+     * L'unico predecessore ci garantisce che tale predecessore (possibile guardia) domini il preheader.
+     * Se ci fossero più predecessori si riuscirebbe ad arrivare al preheader da blocchi diversi --> non è protetto direttamente
+     * da una guardia.
+     * 
+     * L'unico predecessore non deve essere a sua volta un header di un altro loop (nel caso di loop innestati c'è la possibilità
+     * che la branch instruction dell'header del loop venga erroneamente riconosciuta come guardia e questo va evitato).
+     * 
+     * Una volta ottenuto l'unico predecessore del preheader del loop (che non è a sua volta un header di un altro loop padre)
+     * si prende l'istruzione terminatore di tale predecessore e si verifica se è una conditional branch instruction.
+     * Se è un branch condizionale --> si è trovata la guarded branch instruction (guardia)
+     */
     BranchInst *getManualLoopGuard(Loop *L, LoopInfo &LI) {
+        // estraggo il preheader del loop
         BasicBlock *preheader = L->getLoopPreheader();
         if (!preheader)
             return nullptr;
 
+        // verifico se ha un unico predecessore (la guardia deve dominare il preheader)
         BasicBlock *pred = preheader->getSinglePredecessor();
         if (!pred)
             return nullptr;
 
-        // Se pred è header di un loop, probabilmente è una condizione di loop,
-        // non una guardia manuale.
+        /**
+         * Il predecessore deve avere una conditional branch instruction come terminatore, ma questa caratteristica è
+         * presente anche negli header dei loop.
+         * Quindi se si sta analizzando nested loop, c'è la posssibilità che il predecessore del preheader del nested loop sia 
+         * l'header del loop padere, il quale verrebbe erroneamente riconosciuto come guardia.
+         * 
+         * ex:
+         * for(int i=0; i<N; i++){
+         *      for(int j=0; j<N; j++){
+         *          ...
+         *      }
+         * }
+         * 
+         * Il preheader del nested loop ha come unico predecessore l'header del padre, che ha come terminatore una
+         * branch instruction condizionale (potrebbe essere erroneamente scambiata come guardia).
+         * 
+         * Per evitare questa situazione si verifica che il predecessore non sia a sua volta l'header del loop padre.
+         */
         if (Loop *PredLoop = LI.getLoopFor(pred)) {
             if (PredLoop->getHeader() == pred)
                 return nullptr;
         }
 
+        // ricavo la branch instruction dal terminatore del predecessore
         auto *BI = dyn_cast<BranchInst>(pred->getTerminator());
         if (!BI || !BI->isConditional())
             return nullptr;
 
+
+        // verifico se tale conditional branch instruction porta effettivamente al preheader del loop (controllo ausiliare)
         if (BI->getSuccessor(0) != preheader &&
             BI->getSuccessor(1) != preheader)
             return nullptr;
@@ -80,35 +138,76 @@ namespace
         return BI;
     }
 
+
+
+    /**
+     * Funzione che verifica l'adiacenza fra una coppia di loop presi come argomento.
+     * Le condizioni di adiacenza sono le seguenti:
+     * 
+     * PER LOOP NON GUARDED
+     *  - l'exit block del primo loop deve coincidere con il preheader del secondo loop
+     * 
+     *  - il preheader del secondo loop non deve avere istruzioni aggiuntive oltre che alla
+     *      branch incondizionata verso l'header del loop.
+     * 
+     * 
+     * PER LOOP GUARDED
+     *  - l'exit block della prima guardia deve coincidere esattamente con la seconda guardia.
+     * 
+     *  - Nella seconda guardia non ci devono essere istruzioni aggiuntive oltre che ad una compare ed una
+     *      conditional branch instruction (che porta all'exit del loop o al suo preheader)
+     * 
+     *  - il preheader del secondo loop non deve avere istruzioni aggiuntive oltre che alla
+     *      branch incondizionata verso l'header del loop.
+     * 
+     */
     bool verifyAdjacentLoops(Loop* first, Loop* second, LoopInfo &LI){
+
+        // provo ad estrarre la guardia del primo loop
         if(auto *firstGuarded = getManualLoopGuard(first, LI)){
+
+            // il primo loop è guarded e ne ricavo la branch instruction con un dynamic cast
             errs() << "First loop is guarded\n";
             if(BranchInst *firstGuardedBranch = dyn_cast<BranchInst>(firstGuarded)){
                 BasicBlock *exitFirstGuardedBlock = getExitFromGuard(firstGuardedBranch, first);
                 
+                // verifico se anche il secondo loop è guarded 
                 if(auto *secondLoopGuarded = getManualLoopGuard(second, LI)){
                     if(BranchInst *secondLoopGuardedBranch = dyn_cast<BranchInst>(secondLoopGuarded)){
+
+                        // il secondo loop è guarded e ne ho ricavato la branch instruction con un dynamic cast
                         errs() << "Second loop is guarded" << "\n";
+
+                        // ricavo il blocco in cui è contenuta la guarded branch del secondo loop
                         BasicBlock *secondLoopGuardedBlock = secondLoopGuardedBranch->getParent();
+
+                        // ricavo la prima sitruzione del blocco di guardia del secondo loop
                         Instruction *firstSecondLoopGuardInstruction = &secondLoopGuardedBlock->front();
                         
+                        // valore booleano che verifica se il blocco di guardia del secondo loop non contiene istruzioni aggiuntive
+                        // ovvero contiene solo un conditional branch o sia cun compare che un conditional branch
                         bool compareAndBranch = ( isa<CmpInst>(firstSecondLoopGuardInstruction) && (firstSecondLoopGuardInstruction->getNextNode() == secondLoopGuardedBranch) );
                         bool directBranch = ( secondLoopGuardedBranch == firstSecondLoopGuardInstruction );
 
                         if( !compareAndBranch && !directBranch)
                             return false;
 
-
                         if(secondLoopGuardedBlock != exitFirstGuardedBlock)
                             return false;
                         
+                        // la seconda guardia non ha istruzioni aggiuntive e le due guardie sono correttamente conllegate 
                         errs() << "Guard connected !\n";
+
+                        // verifico se ci sono istruzioni ausiliari nel preheader e ritorno il risultato
                         return areNoPreHeaderInstruction(second);
                     }
                 }
             }
             return false;
         }else{
+
+            // il primo loop non è guarded
+
             BasicBlock *exitLoopBlock = first->getExitBlock();
 
             BasicBlock *secondLoopPreHeader = second->getLoopPreheader();
