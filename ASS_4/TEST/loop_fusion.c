@@ -43,6 +43,9 @@ void fun(int d, int k){
                 a[i]=55;
             }
             for(int n=0; n<10; n++){
+                a[i]=1;
+            }
+            for(int n=0; n<10; n++){
                 a[i]=16;
             }
             

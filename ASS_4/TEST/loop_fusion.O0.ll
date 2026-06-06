@@ -16,11 +16,11 @@ entry:
 if.then:                                          ; preds = %entry
   br label %for.cond
 
-for.cond:                                         ; preds = %for.inc33, %if.then
-  %i2.0 = phi i32 [ 1, %if.then ], [ %inc34, %for.inc33 ]
+for.cond:                                         ; preds = %for.inc42, %if.then
+  %i2.0 = phi i32 [ 1, %if.then ], [ %inc43, %for.inc42 ]
   %add3 = add nsw i32 5, 1
   %cmp4 = icmp slt i32 %i2.0, %add3
-  br i1 %cmp4, label %for.body, label %for.end35
+  br i1 %cmp4, label %for.body, label %for.end44
 
 for.body:                                         ; preds = %for.cond
   %sub = sub nsw i32 %i2.0, 1
@@ -78,7 +78,7 @@ for.cond25:                                       ; preds = %for.inc30, %for.end
 for.body27:                                       ; preds = %for.cond25
   %idxprom28 = sext i32 %i2.0 to i64
   %arrayidx29 = getelementptr inbounds [20 x i32], ptr %a9, i64 0, i64 %idxprom28
-  store i32 16, ptr %arrayidx29, align 4
+  store i32 1, ptr %arrayidx29, align 4
   br label %for.inc30
 
 for.inc30:                                        ; preds = %for.body27
@@ -86,18 +86,36 @@ for.inc30:                                        ; preds = %for.body27
   br label %for.cond25, !llvm.loop !9
 
 for.end32:                                        ; preds = %for.cond25
-  br label %for.inc33
+  br label %for.cond34
 
-for.inc33:                                        ; preds = %for.end32
-  %inc34 = add nsw i32 %i2.0, 1
-  br label %for.cond, !llvm.loop !10
+for.cond34:                                       ; preds = %for.inc39, %for.end32
+  %n33.0 = phi i32 [ 0, %for.end32 ], [ %inc40, %for.inc39 ]
+  %cmp35 = icmp slt i32 %n33.0, 10
+  br i1 %cmp35, label %for.body36, label %for.end41
 
-for.end35:                                        ; preds = %for.cond
+for.body36:                                       ; preds = %for.cond34
+  %idxprom37 = sext i32 %i2.0 to i64
+  %arrayidx38 = getelementptr inbounds [20 x i32], ptr %a9, i64 0, i64 %idxprom37
+  store i32 16, ptr %arrayidx38, align 4
+  br label %for.inc39
+
+for.inc39:                                        ; preds = %for.body36
+  %inc40 = add nsw i32 %n33.0, 1
+  br label %for.cond34, !llvm.loop !10
+
+for.end41:                                        ; preds = %for.cond34
+  br label %for.inc42
+
+for.inc42:                                        ; preds = %for.end41
+  %inc43 = add nsw i32 %i2.0, 1
+  br label %for.cond, !llvm.loop !11
+
+for.end44:                                        ; preds = %for.cond
   br label %if.end
 
-if.end:                                           ; preds = %for.end35, %entry
-  %arrayidx36 = getelementptr inbounds [10 x i32], ptr %b, i64 0, i64 3
-  %1 = load i32, ptr %arrayidx36, align 4
+if.end:                                           ; preds = %for.end44, %entry
+  %arrayidx45 = getelementptr inbounds [10 x i32], ptr %b, i64 0, i64 3
+  %1 = load i32, ptr %arrayidx45, align 4
   ret void
 }
 
@@ -117,3 +135,4 @@ attributes #0 = { noinline nounwind ssp uwtable(sync) "frame-pointer"="non-leaf"
 !8 = distinct !{!8, !7}
 !9 = distinct !{!9, !7}
 !10 = distinct !{!10, !7}
+!11 = distinct !{!11, !7}

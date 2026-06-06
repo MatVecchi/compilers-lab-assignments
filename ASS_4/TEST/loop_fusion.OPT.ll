@@ -1,4 +1,4 @@
-; ModuleID = 'loop_fusion.OPT.ll'
+; ModuleID = 'loop_fusion.O0.ll'
 source_filename = "loop_fusion.c"
 target datalayout = "e-m:o-i64:64-i128:128-n32:64-S128-Fn32"
 target triple = "arm64-apple-macosx16.0.0"
@@ -16,11 +16,11 @@ entry:
 if.then:                                          ; preds = %entry
   br label %for.cond
 
-for.cond:                                         ; preds = %for.inc33, %if.then
-  %i2.0 = phi i32 [ 1, %if.then ], [ %inc34, %for.inc33 ]
+for.cond:                                         ; preds = %for.inc42, %if.then
+  %i2.0 = phi i32 [ 1, %if.then ], [ %inc43, %for.inc42 ]
   %add3 = add nsw i32 5, 1
   %cmp4 = icmp slt i32 %i2.0, %add3
-  br i1 %cmp4, label %for.body, label %for.end35
+  br i1 %cmp4, label %for.body, label %for.end44
 
 for.body:                                         ; preds = %for.cond
   %sub = sub nsw i32 %i2.0, 1
@@ -36,10 +36,11 @@ for.body:                                         ; preds = %for.cond
 
 for.cond10:                                       ; preds = %for.inc, %for.body
   %n.0 = phi i32 [ 0, %for.body ], [ %inc, %for.inc ]
+  %fused.iv2 = add i32 %n.0, 0
   %fused.iv1 = add i32 %n.0, 0
   %fused.iv = add i32 %n.0, 0
   %cmp11 = icmp slt i32 %n.0, 10
-  br i1 %cmp11, label %for.body12, label %for.end32
+  br i1 %cmp11, label %for.body12, label %for.end41
 
 for.body12:                                       ; preds = %for.cond10
   %idxprom13 = sext i32 %i2.0 to i64
@@ -47,7 +48,7 @@ for.body12:                                       ; preds = %for.cond10
   store i32 44, ptr %arrayidx14, align 4
   br label %for.body18
 
-for.inc:                                          ; preds = %for.body27
+for.inc:                                          ; preds = %for.body36
   %inc = add nsw i32 %n.0, 1
   br label %for.cond10, !llvm.loop !6
 
@@ -60,22 +61,28 @@ for.body18:                                       ; preds = %for.body12
 for.body27:                                       ; preds = %for.body18
   %idxprom28 = sext i32 %i2.0 to i64
   %arrayidx29 = getelementptr inbounds [20 x i32], ptr %a9, i64 0, i64 %idxprom28
-  store i32 16, ptr %arrayidx29, align 4
+  store i32 1, ptr %arrayidx29, align 4
+  br label %for.body36
+
+for.body36:                                       ; preds = %for.body27
+  %idxprom37 = sext i32 %i2.0 to i64
+  %arrayidx38 = getelementptr inbounds [20 x i32], ptr %a9, i64 0, i64 %idxprom37
+  store i32 16, ptr %arrayidx38, align 4
   br label %for.inc
 
-for.end32:                                        ; preds = %for.cond10
-  br label %for.inc33
+for.end41:                                        ; preds = %for.cond10
+  br label %for.inc42
 
-for.inc33:                                        ; preds = %for.end32
-  %inc34 = add nsw i32 %i2.0, 1
+for.inc42:                                        ; preds = %for.end41
+  %inc43 = add nsw i32 %i2.0, 1
   br label %for.cond, !llvm.loop !8
 
-for.end35:                                        ; preds = %for.cond
+for.end44:                                        ; preds = %for.cond
   br label %if.end
 
-if.end:                                           ; preds = %for.end35, %entry
-  %arrayidx36 = getelementptr inbounds [10 x i32], ptr %b, i64 0, i64 3
-  %1 = load i32, ptr %arrayidx36, align 4
+if.end:                                           ; preds = %for.end44, %entry
+  %arrayidx45 = getelementptr inbounds [10 x i32], ptr %b, i64 0, i64 3
+  %1 = load i32, ptr %arrayidx45, align 4
   ret void
 }
 

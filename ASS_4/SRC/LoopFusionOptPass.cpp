@@ -436,49 +436,45 @@ namespace
     }
 
 
-    void LoopFusion(LoopInfo &LI, SmallVector<Loop* , 10> siblingLoops, DominatorTree &DT, PostDominatorTree &PDT, ScalarEvolution &SE, DependenceInfo &DI){
+    bool LoopFusion(LoopInfo &LI, Loop* first, Loop* second, DominatorTree &DT, PostDominatorTree &PDT, ScalarEvolution &SE, DependenceInfo &DI, Function &F){
+        if(!verifyAdjacentLoops(first, second, LI)){
+            errs() << first->getName() << " and " << second->getName() << " are NOT adjacent loops\n";
+            return false;
+        }    
+        errs() << first->getName() << " and " << second->getName() << " are adjacent loops\n";
+
+        if(!verifyControlFlowEquivalence(first, second, DT, PDT, SE, LI)){
+            errs() << first->getName() << " and " << second->getName() << " are NOT control flow equivalent \n";
+            return false;
+        }   
+        errs() << first->getName() << " and " << second->getName() << " are control flow equivalent \n";  
+
+        if(!verifySameTripCount(first, second, SE)){
+            errs() << first->getName() << " and " << second->getName() << " DON'T have the same trip count \n";
+            return false;
+        }   
+        errs() << first->getName() << " and " << second->getName() << " have the same trip count \n";
         
-        for(auto i=0; i<siblingLoops.size()-1; i++){
-            Loop* first = siblingLoops[i];
-            Loop* second = siblingLoops[i+1];
-
-            if(!verifyAdjacentLoops(first, second, LI))
-                continue;
-            errs() << first->getName() << " and " << second->getName() << " are adjacent loops\n";
- 
-            if(!verifyControlFlowEquivalence(first, second, DT, PDT, SE, LI))
-                continue;
-            errs() << first->getName() << " and " << second->getName() << " are control flow equivalent \n";  
-
-            if(!verifySameTripCount(first, second, SE))
-                continue;
-            errs() << first->getName() << " and " << second->getName() << " have the same trip count \n";
-           
-            if(!verifyDependencies(first, second, DI, SE))
-                continue;
-            errs() << first->getName() << " and " << second->getName() << " can be fused \n";
-
-
-            PHINode* firstIV = getLoopInductionVariable(first, SE);
-            PHINode* secondIV = getLoopInductionVariable(second, SE);
-
-            if(!bodyConnect(first, second))
-                continue;
-            if(!headerExitConnect(first, second))
-                continue;
-            
-            if(!secondLoopHeaderToLatch(second))
-                continue;
-            
-            if(!bypassSecondGuard(first, second, LI))
-                continue;
-
-            inductionVariableFusion(firstIV, secondIV, SE);
+        if(!verifyDependencies(first, second, DI, SE)){
+            errs() << first->getName() << " and " << second->getName() << " have at least one backward dependence\n";
+            return false;
         }
+        errs() << first->getName() << " and " << second->getName() << " can be fused \n";
 
-        /*for(auto* Loop: worklist){
-            LoopFusion(LI, Loop->getSubLoops());
-        }*/
+
+        PHINode* firstIV = getLoopInductionVariable(first, SE);
+        PHINode* secondIV = getLoopInductionVariable(second, SE);
+
+        if(!bodyConnect(first, second)) return false;
+        if(!headerExitConnect(first, second)) return false;
+        if(!secondLoopHeaderToLatch(second)) return false;
+        if(!bypassSecondGuard(first, second, LI)) return false;
+
+        inductionVariableFusion(firstIV, secondIV, SE);
+
+        EliminateUnreachableBlocks(F);
+
+        return true;
     }
 //-----------------------------------------------------------------------------
 // Loop Fusion (LICM) pass
@@ -489,32 +485,50 @@ namespace
     {
         // Main entry point, takes IR unit to run the pass on (&F) and the
         // corresponding pass manager (to be queried if need be)
-        PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM)
-        {   
-            LoopInfo &LI = AM.getResult<LoopAnalysis>(F);
-            DominatorTree &DT = AM.getResult<DominatorTreeAnalysis>(F);
-            PostDominatorTree &PDT = AM.getResult<PostDominatorTreeAnalysis>(F);
-            ScalarEvolution &SE = AM.getResult<ScalarEvolutionAnalysis>(F);
-            DependenceInfo &DI = AM.getResult<DependenceAnalysis>(F);
+        PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM){
+            bool fused = true;
 
-            DenseMap<Loop*, SmallVector<Loop*, 10>> LoopSiblingsMap;
-            
-            for (auto *LL : LI.getLoopsInPreorder()){
-                LoopSiblingsMap[LL->getParentLoop()].push_back(LL);
-            }
+            while (fused) {
+                LoopInfo &LI = AM.getResult<LoopAnalysis>(F);
+                DominatorTree &DT = AM.getResult<DominatorTreeAnalysis>(F);
+                PostDominatorTree &PDT = AM.getResult<PostDominatorTreeAnalysis>(F);
+                ScalarEvolution &SE = AM.getResult<ScalarEvolutionAnalysis>(F);
+                DependenceInfo &DI = AM.getResult<DependenceAnalysis>(F);
 
-            
-            for(auto &[fatherLoop, LoopSiblings]: LoopSiblingsMap){
-                if(fatherLoop)
-                    errs() << "Not top level \n";
-                else
-                    errs() << "Top level loop \n";
-                LoopFusion(LI, LoopSiblings, DT, PDT, SE, DI);
+                bool fused = false;
+
+                DenseMap<Loop*, SmallVector<Loop*, 10>> LoopSiblingsMap;
+
+                for (Loop *LL : LI.getLoopsInPreorder()) {
+                    LoopSiblingsMap[LL->getParentLoop()].push_back(LL);
+                }
+
+                for (auto &[FatherLoop, LoopSiblings] : LoopSiblingsMap) {
+                    if (fused)
+                        break;
+
+                    for (unsigned i = 0; i + 1 < LoopSiblings.size(); ++i) {
+                        Loop *First = LoopSiblings[i];
+                        Loop *Second = LoopSiblings[i + 1];
+
+                        if (LoopFusion(LI, First, Second, DT, PDT, SE, DI, F)) {
+                            fused = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!fused)
+                    break;
+
                 EliminateUnreachableBlocks(F);
+
+                AM.invalidate(F, PreservedAnalyses::none());
             }
-         
+
+
             return PreservedAnalyses::all();
-        };
+        }
 
         // Without isRequired returning true, this pass will be skipped for functions
         // decorated with the optnone LLVM attribute. Note that clang -O0 decorates
