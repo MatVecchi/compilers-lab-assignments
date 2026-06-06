@@ -35,7 +35,12 @@ endif()
 #===============================================================================
 add_library(LoopFusionOptPass SHARED LoopFusionOptPass.cpp)
 
+add_library(LoopFusionRotatedOptPass SHARED LoopFusionRotatedOptPass.cpp)
+
 # Allow undefined symbols in shared objects on Darwin (this is the default
 # behaviour on Linux)
 target_link_libraries(LoopFusionOptPass
+  "$<$<PLATFORM_ID:Darwin>:-undefined dynamic_lookup>")
+
+target_link_libraries(LoopFusionRotatedOptPass
   "$<$<PLATFORM_ID:Darwin>:-undefined dynamic_lookup>")

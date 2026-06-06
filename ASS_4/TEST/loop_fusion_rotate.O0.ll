@@ -12,36 +12,29 @@ entry:
   %b = alloca [10 x i32], align 4
   %add = add nsw i32 5, 100
   %add1 = add nsw i32 10, 5
-  br label %for.cond
+  br label %for.body
 
-for.cond:                                         ; preds = %for.inc25, %entry
-  %j2.0 = phi i32 [ 0, %entry ], [ %inc26, %for.inc25 ]
-  %cmp = icmp slt i32 %j2.0, 5
-  br i1 %cmp, label %for.body, label %for.end27
-
-for.body:                                         ; preds = %for.cond
+for.body:                                         ; preds = %entry, %for.inc25
+  %j2.04 = phi i32 [ 0, %entry ], [ %inc26, %for.inc25 ]
   %cmp3 = icmp slt i32 5, 10
   br i1 %cmp3, label %if.then, label %if.end
 
 if.then:                                          ; preds = %for.body
-  br label %for.cond4
+  br label %for.body6
 
-for.cond4:                                        ; preds = %for.inc, %if.then
-  %n.0 = phi i32 [ 0, %if.then ], [ %inc, %for.inc ]
-  %cmp5 = icmp slt i32 %n.0, 10
-  br i1 %cmp5, label %for.body6, label %for.end
-
-for.body6:                                        ; preds = %for.cond4
+for.body6:                                        ; preds = %if.then, %for.inc
+  %n.01 = phi i32 [ 0, %if.then ], [ %inc, %for.inc ]
   %idxprom = sext i32 0 to i64
   %arrayidx = getelementptr inbounds [10 x i32], ptr %a, i64 0, i64 %idxprom
   store i32 1, ptr %arrayidx, align 4
   br label %for.inc
 
 for.inc:                                          ; preds = %for.body6
-  %inc = add nsw i32 %n.0, 1
-  br label %for.cond4, !llvm.loop !6
+  %inc = add nsw i32 %n.01, 1
+  %cmp5 = icmp slt i32 %inc, 10
+  br i1 %cmp5, label %for.body6, label %for.end, !llvm.loop !6
 
-for.end:                                          ; preds = %for.cond4
+for.end:                                          ; preds = %for.inc
   br label %if.end
 
 if.end:                                           ; preds = %for.end, %for.body
@@ -49,66 +42,58 @@ if.end:                                           ; preds = %for.end, %for.body
   br i1 %cmp7, label %if.then8, label %if.end18
 
 if.then8:                                         ; preds = %if.end
-  br label %for.cond10
+  br label %for.body12
 
-for.cond10:                                       ; preds = %for.inc15, %if.then8
-  %n9.0 = phi i32 [ 0, %if.then8 ], [ %inc16, %for.inc15 ]
-  %cmp11 = icmp slt i32 %n9.0, 10
-  br i1 %cmp11, label %for.body12, label %for.end17
-
-for.body12:                                       ; preds = %for.cond10
+for.body12:                                       ; preds = %if.then8, %for.inc15
+  %n9.02 = phi i32 [ 0, %if.then8 ], [ %inc16, %for.inc15 ]
   %idxprom13 = sext i32 0 to i64
   %arrayidx14 = getelementptr inbounds [10 x i32], ptr %a, i64 0, i64 %idxprom13
   store i32 16, ptr %arrayidx14, align 4
   br label %for.inc15
 
 for.inc15:                                        ; preds = %for.body12
-  %inc16 = add nsw i32 %n9.0, 1
-  br label %for.cond10, !llvm.loop !8
+  %inc16 = add nsw i32 %n9.02, 1
+  %cmp11 = icmp slt i32 %inc16, 10
+  br i1 %cmp11, label %for.body12, label %for.end17, !llvm.loop !8
 
-for.end17:                                        ; preds = %for.cond10
+for.end17:                                        ; preds = %for.inc15
   br label %if.end18
 
 if.end18:                                         ; preds = %for.end17, %if.end
-  br label %for.cond19
+  br label %for.body21
 
-for.cond19:                                       ; preds = %for.inc22, %if.end18
-  %z.0 = phi i32 [ 0, %if.end18 ], [ %inc23, %for.inc22 ]
-  %cmp20 = icmp slt i32 %z.0, 5
-  br i1 %cmp20, label %for.body21, label %for.end24
-
-for.body21:                                       ; preds = %for.cond19
-  %call = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %z.0)
+for.body21:                                       ; preds = %if.end18, %for.inc22
+  %z.03 = phi i32 [ 0, %if.end18 ], [ %inc23, %for.inc22 ]
+  %call = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %z.03)
   br label %for.inc22
 
 for.inc22:                                        ; preds = %for.body21
-  %inc23 = add nsw i32 %z.0, 1
-  br label %for.cond19, !llvm.loop !9
+  %inc23 = add nsw i32 %z.03, 1
+  %cmp20 = icmp slt i32 %inc23, 5
+  br i1 %cmp20, label %for.body21, label %for.end24, !llvm.loop !9
 
-for.end24:                                        ; preds = %for.cond19
+for.end24:                                        ; preds = %for.inc22
   br label %for.inc25
 
 for.inc25:                                        ; preds = %for.end24
-  %inc26 = add nsw i32 %j2.0, 1
-  br label %for.cond, !llvm.loop !10
+  %inc26 = add nsw i32 %j2.04, 1
+  %cmp = icmp slt i32 %inc26, 5
+  br i1 %cmp, label %for.body, label %for.end27, !llvm.loop !10
 
-for.end27:                                        ; preds = %for.cond
-  br label %for.cond29
+for.end27:                                        ; preds = %for.inc25
+  br label %for.body31
 
-for.cond29:                                       ; preds = %for.inc33, %for.end27
-  %j28.0 = phi i32 [ 0, %for.end27 ], [ %inc34, %for.inc33 ]
-  %cmp30 = icmp slt i32 %j28.0, 5
-  br i1 %cmp30, label %for.body31, label %for.end35
-
-for.body31:                                       ; preds = %for.cond29
+for.body31:                                       ; preds = %for.end27, %for.inc33
+  %j28.05 = phi i32 [ 0, %for.end27 ], [ %inc34, %for.inc33 ]
   %call32 = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %add1)
   br label %for.inc33
 
 for.inc33:                                        ; preds = %for.body31
-  %inc34 = add nsw i32 %j28.0, 1
-  br label %for.cond29, !llvm.loop !11
+  %inc34 = add nsw i32 %j28.05, 1
+  %cmp30 = icmp slt i32 %inc34, 5
+  br i1 %cmp30, label %for.body31, label %for.end35, !llvm.loop !11
 
-for.end35:                                        ; preds = %for.cond29
+for.end35:                                        ; preds = %for.inc33
   %arrayidx36 = getelementptr inbounds [10 x i32], ptr %b, i64 0, i64 3
   %0 = load i32, ptr %arrayidx36, align 4
   ret void

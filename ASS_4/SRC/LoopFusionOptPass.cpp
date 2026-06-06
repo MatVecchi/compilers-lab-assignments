@@ -167,7 +167,7 @@ namespace
         if(auto *firstGuarded = getManualLoopGuard(first, LI)){
 
             // il primo loop è guarded e ne ricavo la branch instruction con un dynamic cast
-            errs() << "First loop is guarded\n";
+            errs() << first->getName() << " loop is guarded\n";
             if(BranchInst *firstGuardedBranch = dyn_cast<BranchInst>(firstGuarded)){
                 BasicBlock *exitFirstGuardedBlock = getExitFromGuard(firstGuardedBranch, first);
                 
@@ -176,7 +176,7 @@ namespace
                     if(BranchInst *secondLoopGuardedBranch = dyn_cast<BranchInst>(secondLoopGuarded)){
 
                         // il secondo loop è guarded e ne ho ricavato la branch instruction con un dynamic cast
-                        errs() << "Second loop is guarded" << "\n";
+                        errs() << second->getName() <<" loop is guarded" << "\n";
 
                         // ricavo il blocco in cui è contenuta la guarded branch del secondo loop
                         BasicBlock *secondLoopGuardedBlock = secondLoopGuardedBranch->getParent();
@@ -196,8 +196,6 @@ namespace
                             return false;
                         
                         // la seconda guardia non ha istruzioni aggiuntive e le due guardie sono correttamente conllegate 
-                        errs() << "Guard connected !\n";
-
                         // verifico se ci sono istruzioni ausiliari nel preheader e ritorno il risultato
                         return areNoPreHeaderInstruction(second);
                     }
@@ -225,7 +223,7 @@ namespace
         bool guarded = (firstGuardBranch && secondGuardBranch);
 
         if(guarded){
-            errs() << "are guarded\n";
+            
             // verifico che la veridicità della prima istruzione implica la veridicità della seconda
             // ex: se la prima è n>10 e la seconda n>5 --> allora è true.
             BasicBlock *firstGuard = firstGuardBranch->getParent();
@@ -251,28 +249,6 @@ namespace
             const SCEV *SCEVsecondLeftHandSide = SE.getSCEV(secondLeftHandSide);
             const SCEV *SCEVsecondRightHandSide = SE.getSCEV(secondRightHandSide);
 
-            /* 
-            auto firstPred = firstCompareInstruction->getPredicate();
-            Value *firstLeftHandSide = firstCompareInstruction->getOperand(0); 
-            Value *firstRightHandSide = firstCompareInstruction->getOperand(1);
-
-            const SCEV *SCEVfirstLeftHandSide = SE.getSCEV(firstLeftHandSide);
-            const SCEV *SCEVfirstRightHandSide = SE.getSCEV(firstRightHandSide);
-
-            const SCEV* firstOperandDIFF = SE.getMinusSCEV(
-                SCEVfirstLeftHandSide,
-                SCEVfirstRightHandSide
-            );
-
-            const SCEV* secondOperandDIFF = SE.getMinusSCEV(
-                SCEVsecondLeftHandSide,
-                SCEVsecondRightHandSide
-            );
-
-            if(firstOperandDIFF == secondOperandDIFF && firstPred == secondPred)
-                return true;
-
-            */
 
             /**
              * Il contesto è un blocco che si prende in considerazione per la verifica della implicazione della 
@@ -287,7 +263,7 @@ namespace
              */
             Instruction *CtxI = firstGuardBranch;
             
-            errs() << SE.isKnownPredicateAt(secondPred, SCEVsecondLeftHandSide, SCEVsecondRightHandSide, CtxI) <<"\n";
+            //errs() << SE.isKnownPredicateAt(secondPred, SCEVsecondLeftHandSide, SCEVsecondRightHandSide, CtxI) <<"\n";
             if (!SE.isKnownPredicateAt(secondPred, SCEVsecondLeftHandSide, SCEVsecondRightHandSide, CtxI))
                 return false;
             return true;
@@ -356,6 +332,23 @@ namespace
             }
         }
         return true;
+    }
+
+    PHINode* getLoopInductionVariable(Loop *loop, ScalarEvolution &SE) {
+        BasicBlock *header = loop->getHeader();
+
+        for (auto &instr : *header) {
+            if (auto *phiInstr = dyn_cast<PHINode>(&instr)) {
+                const SCEV *scev = SE.getSCEV(phiInstr);
+
+                if (auto *addRec = dyn_cast<SCEVAddRecExpr>(scev)) {
+                    if (addRec->getLoop() == loop) {
+                        return phiInstr; 
+                    }
+                }
+            }
+        }
+        return nullptr;
     }
 
 
@@ -512,6 +505,7 @@ namespace
 
 
     bool LoopFusion(LoopInfo &LI, Loop* first, Loop* second, DominatorTree &DT, PostDominatorTree &PDT, ScalarEvolution &SE, DependenceInfo &DI, Function &F){
+        errs() << "Analyzing " << first->getName() << " and " << second->getName() << "\n\n";
         if(!verifyAdjacentLoops(first, second, LI)){
             errs() << first->getName() << " and " << second->getName() << " are NOT adjacent loops\n";
             return false;
@@ -542,8 +536,8 @@ namespace
             return false;
         }
 
-        PHINode* firstIV = first->getInductionVariable(SE);
-        PHINode* secondIV = second->getInductionVariable(SE);
+        PHINode* firstIV = getLoopInductionVariable(first, SE);
+        PHINode* secondIV = getLoopInductionVariable(second, SE);
         
 
         if(!bodyConnect(first, second)) return false;
@@ -554,6 +548,7 @@ namespace
         inductionVariableFusion(firstIV, secondIV, SE);
 
         EliminateUnreachableBlocks(F);
+        errs() << "Loop Fused correctly ! \n";
         
         return true;
     }
@@ -568,9 +563,9 @@ namespace
         // corresponding pass manager (to be queried if need be)
         PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM){
             bool fused = true;
-
+            bool result = false;
+            
             while (fused) {
-                errs() << "Ricalcolo...\n";
                 LoopInfo &LI = AM.getResult<LoopAnalysis>(F);
                 DominatorTree &DT = AM.getResult<DominatorTreeAnalysis>(F);
                 PostDominatorTree &PDT = AM.getResult<PostDominatorTreeAnalysis>(F);
@@ -581,9 +576,7 @@ namespace
 
                 DenseMap<Loop*, SmallVector<Loop*, 10>> LoopSiblingsMap;
 
-                errs() << "Provo a calcolare la mappa\n";
                 for (Loop *LL : LI.getLoopsInPreorder()) {
-                    errs() << *LL << "\n";
                     LoopSiblingsMap[LL->getParentLoop()].push_back(LL);
                 }
 
@@ -595,7 +588,11 @@ namespace
                         Loop *First = LoopSiblings[i];
                         Loop *Second = LoopSiblings[i + 1];
 
-                        if (LoopFusion(LI, First, Second, DT, PDT, SE, DI, F)) {
+                        errs() << "\n=========================================\n";
+                        result = LoopFusion(LI, First, Second, DT, PDT, SE, DI, F);
+                        errs() << "=========================================\n\n";
+
+                        if (result) {
                             fused = true;
                             break;
                         }

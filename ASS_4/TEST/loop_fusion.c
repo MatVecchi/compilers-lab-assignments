@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 void fun(int d, int k){
     int a[10];
     int b[10];
@@ -26,7 +28,7 @@ void fun(int d, int k){
     int kplus = k+5;
 
 
-    if(d < kplus){
+    /*if(d < kplus){
         for(int i=1; i<d+1; i++){
             b[i-1] = 16 + b[i-1];
 
@@ -45,6 +47,25 @@ void fun(int d, int k){
             }
             
         }
+    }*/
+
+    for(int j=0; j<d; j++){
+        if(d<k){
+            for(int n=0; n<10; n++){
+                a[i]=1;
+            }
+        }
+        if(d<k){
+            for(int n=0; n<10; n++){
+                a[i]=16;
+            }   
+        }
+        for(int z=0; z<d; z++){
+            printf("%d", z);
+        }
+    }
+    for(int j=0; j<d; j++){
+        printf("%d", kplus);
     }
     
     

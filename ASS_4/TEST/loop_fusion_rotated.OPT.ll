@@ -1,4 +1,4 @@
-; ModuleID = 'loop_fusion.O0.ll'
+; ModuleID = 'loop_fusion_rotate.O0.ll'
 source_filename = "loop_fusion.c"
 target datalayout = "e-m:o-i64:64-i128:128-n32:64-S128-Fn32"
 target triple = "arm64-apple-macosx16.0.0"
@@ -12,36 +12,29 @@ entry:
   %b = alloca [10 x i32], align 4
   %add = add nsw i32 5, 100
   %add1 = add nsw i32 10, 5
-  br label %for.cond
+  br label %for.body
 
-for.cond:                                         ; preds = %for.inc25, %entry
-  %j2.0 = phi i32 [ 0, %entry ], [ %inc26, %for.inc25 ]
-  %fused.iv = add i32 %j2.0, 0
-  %cmp = icmp slt i32 %j2.0, 5
-  br i1 %cmp, label %for.body, label %for.end35
-
-for.body:                                         ; preds = %for.cond
+for.body:                                         ; preds = %for.inc25, %entry
+  %j2.04 = phi i32 [ 0, %entry ], [ %inc26, %for.inc25 ]
+  %fused.iv = add i32 %j2.04, 0
   %cmp3 = icmp slt i32 5, 10
   br i1 %cmp3, label %if.then, label %if.end18
 
 if.then:                                          ; preds = %for.body
-  br label %for.cond4
+  br label %for.body6
 
-for.cond4:                                        ; preds = %for.inc, %if.then
-  %n.0 = phi i32 [ 0, %if.then ], [ %inc, %for.inc ]
-  %fused.iv1 = add i32 %n.0, 0
-  %cmp5 = icmp slt i32 %n.0, 10
-  br i1 %cmp5, label %for.body6, label %for.end17
-
-for.body6:                                        ; preds = %for.cond4
+for.body6:                                        ; preds = %for.inc, %if.then
+  %n.01 = phi i32 [ 0, %if.then ], [ %inc, %for.inc ]
+  %fused.iv1 = add i32 %n.01, 0
   %idxprom = sext i32 0 to i64
   %arrayidx = getelementptr inbounds [10 x i32], ptr %a, i64 0, i64 %idxprom
   store i32 1, ptr %arrayidx, align 4
   br label %for.body12
 
 for.inc:                                          ; preds = %for.body12
-  %inc = add nsw i32 %n.0, 1
-  br label %for.cond4, !llvm.loop !6
+  %inc = add nsw i32 %n.01, 1
+  %cmp5 = icmp slt i32 %inc, 10
+  br i1 %cmp5, label %for.body6, label %for.end17, !llvm.loop !6
 
 for.body12:                                       ; preds = %for.body6
   %idxprom13 = sext i32 0 to i64
@@ -49,37 +42,35 @@ for.body12:                                       ; preds = %for.body6
   store i32 16, ptr %arrayidx14, align 4
   br label %for.inc
 
-for.end17:                                        ; preds = %for.cond4
+for.end17:                                        ; preds = %for.inc
   br label %if.end18
 
 if.end18:                                         ; preds = %for.body, %for.end17
-  br label %for.cond19
+  br label %for.body21
 
-for.cond19:                                       ; preds = %for.inc22, %if.end18
-  %z.0 = phi i32 [ 0, %if.end18 ], [ %inc23, %for.inc22 ]
-  %cmp20 = icmp slt i32 %z.0, 5
-  br i1 %cmp20, label %for.body21, label %for.end24
-
-for.body21:                                       ; preds = %for.cond19
-  %call = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %z.0)
+for.body21:                                       ; preds = %for.inc22, %if.end18
+  %z.03 = phi i32 [ 0, %if.end18 ], [ %inc23, %for.inc22 ]
+  %call = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %z.03)
   br label %for.inc22
 
 for.inc22:                                        ; preds = %for.body21
-  %inc23 = add nsw i32 %z.0, 1
-  br label %for.cond19, !llvm.loop !8
+  %inc23 = add nsw i32 %z.03, 1
+  %cmp20 = icmp slt i32 %inc23, 5
+  br i1 %cmp20, label %for.body21, label %for.end24, !llvm.loop !8
 
-for.end24:                                        ; preds = %for.cond19
+for.end24:                                        ; preds = %for.inc22
   br label %for.body31
 
 for.inc25:                                        ; preds = %for.body31
-  %inc26 = add nsw i32 %j2.0, 1
-  br label %for.cond, !llvm.loop !9
+  %inc26 = add nsw i32 %j2.04, 1
+  %cmp = icmp slt i32 %inc26, 5
+  br i1 %cmp, label %for.body, label %for.end35, !llvm.loop !9
 
 for.body31:                                       ; preds = %for.end24
   %call32 = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %add1)
   br label %for.inc25
 
-for.end35:                                        ; preds = %for.cond
+for.end35:                                        ; preds = %for.inc25
   %arrayidx36 = getelementptr inbounds [10 x i32], ptr %b, i64 0, i64 3
   %0 = load i32, ptr %arrayidx36, align 4
   ret void
