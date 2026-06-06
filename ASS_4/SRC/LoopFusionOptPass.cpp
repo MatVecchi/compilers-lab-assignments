@@ -323,7 +323,6 @@ namespace
     bool verifyDependencies(Loop* first, Loop* second, DependenceInfo &DI, ScalarEvolution &SE){
         SmallVector<Instruction *, 10> firstLS = getLoadStore(first, false);
         SmallVector<Instruction *, 10> secondLS = getLoadStore(second, true);
-
         
         for(Instruction *firstInst: firstLS){
             for(Instruction* secondInst: secondLS){
@@ -359,24 +358,6 @@ namespace
         return true;
     }
 
-    
-
-    PHINode* getLoopInductionVariable(Loop *loop, ScalarEvolution &SE) {
-        BasicBlock *header = loop->getHeader();
-
-        for (auto &instr : *header) {
-            if (auto *phiInstr = dyn_cast<PHINode>(&instr)) {
-                const SCEV *scev = SE.getSCEV(phiInstr);
-
-                if (auto *addRec = dyn_cast<SCEVAddRecExpr>(scev)) {
-                    if (addRec->getLoop() == loop) {
-                        return phiInstr; 
-                    }
-                }
-            }
-        }
-        return nullptr;
-    }
 
     const SCEV* getInductionVariableDifference(PHINode* firstInductionVariable, PHINode* secondInductionVariable, ScalarEvolution &SE){
         const SCEVAddRecExpr *firstIVSCEV = dyn_cast<SCEVAddRecExpr>(SE.getSCEV(firstInductionVariable));
@@ -400,7 +381,7 @@ namespace
         if(!constant_delta)
             return;
         
-
+        
         
         Instruction *newInduction = BinaryOperator::CreateAdd(
             firstInductionVariable, 
@@ -440,11 +421,6 @@ namespace
         if(!latchBB)
             return nullptr;
         
-        // da sistemare 
-        BasicBlock *loopBody = getBodyStart(loop);
-        if(latchBB == loopBody)
-            return loopBody->getTerminator();
-
         BasicBlock *boodyLastBB = latchBB->getUniquePredecessor();
         if(!boodyLastBB)
             return nullptr;
@@ -504,10 +480,6 @@ namespace
         BasicBlock *header = loop->getHeader();
         BasicBlock *latch = loop->getLoopLatch();
 
-        // da sistemare
-        if(!latch)
-           return true;
-
         BranchInst *headerBranch =
             dyn_cast_or_null<BranchInst>(header->getTerminator());
 
@@ -532,6 +504,10 @@ namespace
         unsigned int firstExitSuccessor = firstGuardedBranch->getSuccessor(0) == first->getLoopPreheader()? 1:0;
         firstGuardedBranch->setSuccessor(firstExitSuccessor, exitSecondGuardedBlock);
         return true;
+    }
+
+    bool isForStructure(Loop* loop){
+        return loop->getLoopLatch()->size() == 2;
     }
 
 
@@ -561,8 +537,14 @@ namespace
         errs() << first->getName() << " and " << second->getName() << " can be fused \n";
 
 
-        PHINode* firstIV = getLoopInductionVariable(first, SE);
-        PHINode* secondIV = getLoopInductionVariable(second, SE);
+        if( !isForStructure(first) || !isForStructure(second)){
+            errs() << "One loop is in while-form. fuse refused\n";
+            return false;
+        }
+
+        PHINode* firstIV = first->getInductionVariable(SE);
+        PHINode* secondIV = second->getInductionVariable(SE);
+        
 
         if(!bodyConnect(first, second)) return false;
         if(!headerExitConnect(first, second)) return false;
@@ -572,7 +554,7 @@ namespace
         inductionVariableFusion(firstIV, secondIV, SE);
 
         EliminateUnreachableBlocks(F);
-
+        
         return true;
     }
 //-----------------------------------------------------------------------------
@@ -588,6 +570,7 @@ namespace
             bool fused = true;
 
             while (fused) {
+                errs() << "Ricalcolo...\n";
                 LoopInfo &LI = AM.getResult<LoopAnalysis>(F);
                 DominatorTree &DT = AM.getResult<DominatorTreeAnalysis>(F);
                 PostDominatorTree &PDT = AM.getResult<PostDominatorTreeAnalysis>(F);
@@ -598,7 +581,9 @@ namespace
 
                 DenseMap<Loop*, SmallVector<Loop*, 10>> LoopSiblingsMap;
 
+                errs() << "Provo a calcolare la mappa\n";
                 for (Loop *LL : LI.getLoopsInPreorder()) {
+                    errs() << *LL << "\n";
                     LoopSiblingsMap[LL->getParentLoop()].push_back(LL);
                 }
 
@@ -620,7 +605,7 @@ namespace
                 if (!fused)
                     break;
 
-                EliminateUnreachableBlocks(F);
+                
 
                 AM.invalidate(F, PreservedAnalyses::none());
             }

@@ -21,15 +21,10 @@ void fun(int d, int k){
     } */
     
 
-    
+        
     d = 5;
     int kplus = k+5;
 
-    /*if(d < k){
-        for(int i=0; i<d; i++){
-            b[i] = 44;
-        }
-    }*/
 
     if(d < kplus){
         for(int i=1; i<d+1; i++){

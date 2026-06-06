@@ -36,9 +36,6 @@ for.body:                                         ; preds = %for.cond
 
 for.cond10:                                       ; preds = %for.inc, %for.body
   %n.0 = phi i32 [ 0, %for.body ], [ %inc, %for.inc ]
-  %fused.iv2 = add i32 %n.0, 0
-  %fused.iv1 = add i32 %n.0, 0
-  %fused.iv = add i32 %n.0, 0
   %cmp11 = icmp slt i32 %n.0, 10
   br i1 %cmp11, label %for.body12, label %for.end41
 
