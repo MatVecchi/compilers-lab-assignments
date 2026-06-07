@@ -31,6 +31,7 @@ Infatti il ciclo while non ha un blocco di latch esplicito come nel for ma lo ha
 ## 3. Verifica della Control Flow Equivalence
 
 La Control Flow Equivalence garantisce che, se si entra nel primo loop, si entrerà sicuramente anche nel secondo loop, e viceversa. Questo impedisce di fondere un loop che viene sempre eseguito con uno che è subordinato a una condizione dinamica. 
+Per verificare questa condizione sono state utilizzate le analisi di dominanza e post dominanza.
 
 Per garantire la control flow equivalence abbiamo implementato il metodo: 
 
