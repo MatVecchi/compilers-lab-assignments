@@ -36,7 +36,7 @@ Per verificare questa condizione sono state utilizzate le analisi di dominanza e
 Per garantire la control flow equivalence abbiamo implementato il metodo: 
 
 * `verifyControlFlowEquivalence`: utilizza l'analisi di dominanza (DominatorTree) e post-dominanza (PostDominatorTree) verificando che il primo loop domini il secondo e che contemporaneamente il secondo loop post-domini il primo.
-* Nel caso di cicli protetti da guardie, sfrutta il metodo isKnownPredicateAt di ScalarEvolution per verificare se la condizione della prima guardia implichi logicamente la veridicità della seconda.
+* Nel caso di loop protetti da guardie, sfrutta il metodo isKnownPredicateAt di ScalarEvolution per verificare se la condizione della prima guardia implichi logicamente la veridicità della seconda.
 
 ---
 
@@ -55,7 +55,7 @@ Per analizzare la sicurezza dei dati abbiamo implementato i seguenti metodi:
 Una volta superate tutte le verifiche di legalità, il passo esegue la trasformazione effettiva unendo i corpi dei loop e rimappando delle variabili di induzione in modo che utilizzino un unico contatore condiviso. 
 
 Per implementare la trasformazione fisica del codice abbiamo creato le seguenti funzioni:
-* `LoopFusion`: invoca i metodi di analisi e le fases di verifica, avviando la fusione dei due loop se tutte le condizioni sono soddisfatte.
+* `LoopFusion`: invoca i metodi di analisi e le fasi di verifica, avviando la fusione dei due loop se tutte le condizioni sono soddisfatte.
 * `getLoopInductionVariable` e `getInductionVariableDifference`: individuano le variabili d'induzione (PHINode) dei loop e calcolano la differenza costante iniziale (delta) tra i loro punti di partenza.
 * `inductionVariableFusion`: unifica le due variabili d'induzione creando una nuova istruzione di add basata sull'indice del primo loop e sostituendo tutti gli usi della variable del secondo loop.
 * `bodyConnect`: unisce i corpi dei due loop, modificando il terminatore del primo corpo per farlo puntare all'inizio del secondo corpo.
