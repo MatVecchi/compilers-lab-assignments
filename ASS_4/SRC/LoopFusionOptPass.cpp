@@ -215,18 +215,28 @@ namespace
         }else{
 
             // il primo loop non è guarded
-
+            // estraggo l'exit block del primo loop e verifico che questo sia il preheader del secondo loop
             BasicBlock *exitLoopBlock = first->getExitBlock();
 
             BasicBlock *secondLoopPreHeader = second->getLoopPreheader();
             if( secondLoopPreHeader != exitLoopBlock)
                 return false;
             
+            // verifico che non ci siano altre istruzioni nel pre-header del secondo loop
             return areNoPreHeaderInstruction(second);
         }
     }
 
+    /*
+        Funzione che verifica la Control Flow Equivalence su due loop:
 
+        CASO LOOP GUARDED
+        Tramite DominatorTree e PostDominatorTree bisogna controllare che la prima guardia domini la seconda e allo stesso tempo la seconda postdomini la prima.
+        Inoltre bisogna verificare che la condizione della prima guardia implichi la condizione della seconda.
+        
+        CASO LOOP NON GUARDED
+        Tramite DominatorTree e PostDominatorTree bisogna controllare che il primo loop domini il secondo e allo stesso tempo il secondo postdomini il primo
+    */
     bool verifyControlFlowEquivalence(Loop* first, Loop* second, DominatorTree &DT, PostDominatorTree &PDT, ScalarEvolution &SE, LoopInfo &LI){
         BranchInst* firstGuardBranch = getManualLoopGuard(first, LI);
         BranchInst* secondGuardBranch = getManualLoopGuard(second, LI);
@@ -239,9 +249,12 @@ namespace
             BasicBlock *firstGuard = firstGuardBranch->getParent();
             BasicBlock *secondGuard = secondGuardBranch->getParent();
 
+            // verifico le proprietà di dominanza e post-dominanza
+            // la prima guardia deve dominare la seconda e la seconda deve post-dominare la prima
             if(!DT.dominates(firstGuard, secondGuard) ||  !PDT.dominates(secondGuard, firstGuard) )
                 return false;
-                
+            
+            // verifico che la prima guardia implichi la seconda, per prima cosa ricavando le due condizioni
             Value* firstGuardedBranchCondition = firstGuardBranch->getCondition();
             Value* secondGuardedBranchCondition = secondGuardBranch->getCondition(); 
 
@@ -251,7 +264,7 @@ namespace
             if(!firstCompareInstruction || !secondCompareInstruction)
                 return false;
 
-            
+            // estraggo il predicato e il RHV e il LHV della seconda condizione e ne ottengo lo SCEV
             auto secondPred = secondCompareInstruction->getPredicate();
             Value *secondLeftHandSide = secondCompareInstruction->getOperand(0); 
             Value *secondRightHandSide = secondCompareInstruction->getOperand(1);
@@ -261,15 +274,11 @@ namespace
 
 
             /**
-             * Il contesto è un blocco che si prende in considerazione per la verifica della implicazione della 
-             * prima guardia sulla seconda
-             * Per ipotesi si suppone che si passi dal contesto, se si passa dal contesto si passa anche da tutti i suoi dominatori.
-             * se tra i dominatori compare una condizione, allora si sa che quella condizione era per forza vera o per forza falsa (dipende dal punto del contesto).
-             * In questo modo si considera quindi l'ipotesi iniziale su cui si vuole verificare l'implicazione.
-             * --> il contesto mi capisce quale condizione considerare (risale il dom tree) e la sua condizione iniziale su cui si vuole verificare 
-             * l'inferenza 
-             * 
-             * poi il metodo is knwon predicate at verifica l'effettiva implicazione tra le due codnizioni identificate
+             * Il contesto è una istruzione che si prende in considerazione per la verifica della implicazione della 
+             * prima guardia sulla seconda.
+             * Il contesto corrisponde allo scope in cui si vuole verificare la veridicità della seconda condizione rispetto alla prima.
+             * La funzione isKnownPredicateAt prende in input il contesto e un predicato e verifica se tale predicato è
+             * verificato nel contesto passato come argomento.
              */
             Instruction *CtxI = firstGuardBranch;
             
@@ -279,27 +288,48 @@ namespace
             return true;
              
         }
+        
+        // verifico che il primo loop domini il secondo e che il secondo loop post-domini il primo
         return DT.dominates(first->getHeader(), second->getHeader()) && PDT.dominates(second->getHeader(), first->getHeader());
     }
 
 
-
+    /*
+        Funzione per la verifica del Trip Count:
+        
+        A prescindere dal fatto che i loop siano guarded o meno devono avere lo stesso Trip Count. Per farlo si ottiene il Backedge Taken Count, 
+        che nel contesto del Control Flow Graph consiste nel sapere quante volte viene percorso l'arco che dal Latch riporta all'Header.
+    */
     bool verifySameTripCount(Loop* first, Loop* second, ScalarEvolution &SE){
+        // ottengo i trip count dei due loop
         auto *firstTP = SE.getBackedgeTakenCount(first);
         auto *secondTP = SE.getBackedgeTakenCount(second);
+
+        // se non sono calcolabili ritorno false
         if(isa<SCEVCouldNotCompute>(firstTP) || isa<SCEVCouldNotCompute>(secondTP))
             return false;
+            
+        // altrimenti verifico se sono uguali
         return  firstTP == secondTP;
     }
 
+    // Funzone helper che viene utilizzata per ricavare le operazioni di STORE (ed eventualmente anche LOAD) dato un loop preso come argomento
+    // getLoad è un flag che indica se includere anche le load.
     SmallVector<Instruction *, 10> getLoadStore(Loop* LL, bool getLoad){
+        // creo il vettore di load e store
         SmallVector<Instruction *, 10> loadStore;
+        
+        // scorro i blocchi e le istruzioni del loop
         for(auto *BB: LL->getBlocks()){
             for(auto &I: *BB){
+                
+                // aggiungo al vettore le load se richieste
                 if(getLoad){
                     if(auto *loadInstr = dyn_cast<LoadInst>(&I))
                         loadStore.push_back(loadInstr);
                 }
+                
+                // aggiungo al vettore le store
                 if(auto *storeInstr = dyn_cast<StoreInst>(&I))
                     loadStore.push_back(storeInstr);
             }
@@ -308,11 +338,19 @@ namespace
     }
 
     
+    /*
+        Funzione che verifica le dipendenze tra le istruzioni di due loop:
 
+        Tralasciando il caso particolare che si ha confrontando due LOAD, le altre possibili combinazioni di LOAD e STORE possono portare il programma ad uno stato di inconsistenza se confrontato con la sua versione precedente non ottimizzata.
+        Per questo motivo si ottengono tutte le STORE del primo loop e le LOAD e le STORE del secondo loop e tramite un Brute Force in cui si escludono i casi in cui le istruzioni non dipendono tra loro, 
+        per quelli rimanenti tramite la Scalar Evolution si effettua un controllo tra i Pointer Operand delle due istruzioni per determinare se queste hanno una backwards dependency e quindi rinunciare alla Loop Fusion
+    */
     bool verifyDependencies(Loop* first, Loop* second, DependenceInfo &DI, ScalarEvolution &SE){
+        // ricavo le store del primo loop e le load & store del secondo loop
         SmallVector<Instruction *, 10> firstLS = getLoadStore(first, false);
         SmallVector<Instruction *, 10> secondLS = getLoadStore(second, true);
         
+        // veifico le dipendenze fra le store del primo loop e le load&store del secondo
         for(Instruction *firstInst: firstLS){
             for(Instruction* secondInst: secondLS){
 
@@ -338,6 +376,8 @@ namespace
                 errs() << *secondInst << " --> loop data space pattern: " << *secondLoopIteration << "\n";
 
                 errs() << "Delta: " << *delta << "\n\n"; */
+                
+                // se il delta è positivo è una backward dependence
                 if(SE.isKnownPositive(delta))
                     return false;
 
@@ -347,14 +387,29 @@ namespace
         return true;
     }
 
+    /**
+     * Funzione helper che ricava la induction variable da un loop.
+     * 
+     * Nota: è stato necessario creare una funzione manuale per ricavare la induction variable di un Loop perchè 
+     * l'API di LLVM getInductionVariable funziona solo per i loop rotated.
+     * In alternativa ritorna nullptr.
+     * 
+     * Per ottenere la Induction variable si verifica che nell'header del loop ci sia un phi node di cui si riesca a calcolare
+     * il SCEVAddRecExpr, ovvero un oggetto SCEV che definisce il range di valori della variabile che il for utilizza come contatore.
+     * espresso come: {base, +/-, step}
+     */
     PHINode* getLoopInductionVariable(Loop *loop, ScalarEvolution &SE) {
         BasicBlock *header = loop->getHeader();
 
+        // scorro le istruzioni dell'header
         for (auto &instr : *header) {
+            // verifico se l'istruzione è un phi node
             if (auto *phiInstr = dyn_cast<PHINode>(&instr)) {
                 const SCEV *scev = SE.getSCEV(phiInstr);
-
+                
+                // ne calcolo, se possibile il range di valori assumibili
                 if (auto *addRec = dyn_cast<SCEVAddRecExpr>(scev)) {
+                    // verifico se tale range di valori è relativo al loop preso in esame
                     if (addRec->getLoop() == loop) {
                         return phiInstr; 
                     }
@@ -364,31 +419,48 @@ namespace
         return nullptr;
     }
 
+    /*
+        Funzione helper che ricava la differenza tra due Induction Variable:
 
+        Tramite la Scalar Evolution si effettua una differenza tra due Induction Variable per capire di quanto la seconda Induction Variable si discosta dalla prima.
+        Questo ci è particolarmente utile quando bisogna "inserire" la seconda Induction Variable nel primo loop, utilizzando la prima Induction Variable come riferimento.
+    */
     const SCEV* getInductionVariableDifference(PHINode* firstInductionVariable, PHINode* secondInductionVariable, ScalarEvolution &SE){
+        
+        // calcolo i range di valori delle due induction variable esprssi come SCEVAddRecExpr
         const SCEVAddRecExpr *firstIVSCEV = dyn_cast<SCEVAddRecExpr>(SE.getSCEV(firstInductionVariable));
         const SCEVAddRecExpr *secondIVSCEV = dyn_cast<SCEVAddRecExpr>(SE.getSCEV(secondInductionVariable));
 
         errs() << "First Induction variable SCEV" << *firstIVSCEV << "\n";
         errs() << "Second Induction variable SCEV" << *secondIVSCEV << "\n";
-
+        
+        // calcolo la differenza fra gli "start" (valori iniziali) dei due range ottenuti
         const SCEV *inductionDifference = SE.getMinusSCEV(secondIVSCEV->getStart(), firstIVSCEV->getStart());
         errs() << "Induction variable difference SCEV: " << *inductionDifference << "\n";
     
         return inductionDifference;
     }
 
+    /*
+        Funzione che effettua l'inserimento della seconda Induction Variable nel primo loop:
+        
+        Si inserisce nell'Header del primo loop, esattamente dopo la prima Induction Variable, un operazione di Add tra la prima Induction Variable e il valore calcolato come differenza tra le due Induction Variable
+    */
     void inductionVariableFusion(PHINode *firstInductionVariable,PHINode *secondInductionVariable, ScalarEvolution &SE){
         if(!firstInductionVariable || !secondInductionVariable)
             return;
-
+        
+        // ottengo la differenza fra le due induction variable con l'omonima funzione
         const SCEV *delta = getInductionVariableDifference(firstInductionVariable, secondInductionVariable, SE);
+        
+        // estraggo il valore costante
         const SCEVConstant *constant_delta = dyn_cast<SCEVConstant>(delta);
         if(!constant_delta)
             return;
         
         
-        
+        // inserisco una operazione di ADD come somma della prima induction variable e il valore costante del delta.
+        // il nome della nuova variabile è "fused.iv" e viene posizionata dopo la posizione della first induction variable
         Instruction *newInduction = BinaryOperator::CreateAdd(
             firstInductionVariable, 
             constant_delta->getValue(), 
@@ -396,10 +468,13 @@ namespace
             firstInductionVariable->getParent()->getFirstNonPHI()
         );
         
-        //newInduction->insertAfter(firstInductionVariable);
+        // rimpiazzio gli usi della seconda induction variable con la nuova variabile inserita
         secondInductionVariable->replaceAllUsesWith(newInduction);
     }
 
+    /*
+        Funzione helper che dato uno SmallVector di BasicBlock e un BasicBlock controlla se tale BasicBlock è contenuto nello SmallVector
+    */
     bool contains(SmallVector<BasicBlock *, 10> vec, BasicBlock *find){
         for(auto *BB: vec)
             if(find == BB)
@@ -407,13 +482,17 @@ namespace
         return false;
     }
 
-
+    /*
+        Funzione helper che dato un loop ne ricava il suo primo blocco Body
+    */
     BasicBlock *getBodyStart(Loop* loop){
+        // Il primo blocco Body del loop è il blocco successore all'Header
         BasicBlock *header = loop->getHeader();
         BranchInst *headerBranch = dyn_cast<BranchInst>(header->getTerminator());
         if(!headerBranch)
             return nullptr;
-            
+        
+        // Siccome l'Header ha per forza due successori, l'Exit Block e il Body, se il primo successore è l'Exit Block allora il secondo è il Body e viceversa
         SmallVector<BasicBlock *, 10> loopExits;
         loop->getExitBlocks(loopExits);
         if(contains(loopExits, headerBranch->getSuccessor(0)))
@@ -421,57 +500,88 @@ namespace
         return headerBranch->getSuccessor(0);
     }
 
-
+    // funzione helper che ritorna la branch instruction dell'ultimo blocco del body (escluso il LATCH). ovvero la branch
+    // instruction che porta al blocco di latch
     Instruction *getTerminatorBodyInstruction(Loop* loop){
+        // si ottiene il latch
         BasicBlock *latchBB = loop->getLoopLatch();
         if(!latchBB)
             return nullptr;
         
+        // si prende il predecessore del latch 
         BasicBlock *boodyLastBB = latchBB->getUniquePredecessor();
         if(!boodyLastBB)
             return nullptr;
         
+        // si prende l'ultima istruzione del predecessore del latch (e quindi la branch instruction verso il latch)
         Instruction *bodyTerminatorInstr = boodyLastBB->getTerminator();
         return bodyTerminatorInstr;
     }
 
+    /*
+        Funzione che si occupa di incorporare il Body del secondo loop nel Body del primo:
 
+        Requisiti:
+        - Istruzione terminatrice dell'ultimo blocco del Body (non Latch) del primo loop
+        - Istruzione terminatrice dell'ultimo blocco del Body (non Latch) del secondo loop
+        - Blocco Latch del primo loop
+        
+        Si imposta come successore del terminator dell'ultimo blocco Body del primo loop il primo blocco del Body del secondo loop,
+        successivamente si imposta come successore del terminator dell'ultimo blocco Body del secondo loop il blocco Latch del primo loop.
+    */    
     bool bodyConnect(Loop *first, Loop *second){
+        // si ricava il branch del body che porta al latch del primo loop
         Instruction *firstBodyTerminatorInstruction = getTerminatorBodyInstruction(first);
         BranchInst *firstTerminatorBodyBranch = dyn_cast<BranchInst>(firstBodyTerminatorInstruction);
         if(!firstTerminatorBodyBranch)
             return false;
         
+        // si ottiene il primo blocco del body del secondo loop
         BasicBlock *secondBody = getBodyStart(second);
         
         // modifichiamo la branch instruction alla fine del body del primo loop facendo in modo che punti al primo basic
         // block del body del secondo loop
         firstTerminatorBodyBranch->setSuccessor(0, secondBody);
 
-        
+        // si modifica la branch instruction alla fine del body (non latch) del secondo loop facendoin mod che punto al 
+        // latch del primo loop
         Instruction *secondBodyTerminatorInstruction = getTerminatorBodyInstruction(second);
         BranchInst *secondTerminatorBodyBranch = dyn_cast<BranchInst>(secondBodyTerminatorInstruction);
         BasicBlock *firstLatch = first->getLoopLatch();
 
-        
 
-        // modifico la branch instruction terminatrice del primo body facendo in modo che punti al latch del 
+        // modifico la branch instruction terminatrice del secondo body facendo in modo che punti al latch del 
         // primo loop
         secondTerminatorBodyBranch->setSuccessor(0, firstLatch);
         
         return true;
     }
 
+
+    /**
+     * Funzione che si occupa di collegare l'uscita dell'header del primo loop con l'exit block del secondo loop.
+     * 
+     * Requisiti:
+     *  - header del primo loop
+     *  - primo blocco del body del primo loop
+     *  - exit block del secondo loop
+     */
     bool headerExitConnect(Loop *first, Loop *second){
+        
+        // si ricava il primo blocco del body del primo loop
         BasicBlock *firstBody = getBodyStart(first);
         if(!firstBody)
             return false;
         
+        // si ricava l'header del primo loop e la conditional branch instruction alla fine di esso
         BasicBlock *firstHeader = first->getHeader();
         BranchInst *firstHeaderBranch = dyn_cast<BranchInst>(firstHeader->getTerminator());
 
+        // si verifica qual'è il successore che NON PORTA al body del primo loop.
+        // tale indice indica quale successore è il branch verso l'exit del loop che deve essere sostituito con l'exit del secondo loop
         unsigned int firstHeaderExitSuccessorIndex = firstHeaderBranch->getSuccessor(0) == firstBody ? 1 : 0;
         SmallVector<BasicBlock *, 10> secondLoopExits;
+        
         // c'è solo un exit block perchè se ce ne fossere altri si formerebbe un problema di dominanza e post-dominanza
         // e il trip count non si riuscirebbe a calcolare
         second->getExitBlocks(secondLoopExits);
@@ -482,22 +592,45 @@ namespace
         return true;
     }
 
+    /*
+        Funzione che si occupa di collegare l'Header del secondo loop con il suo Latch:
+
+        Requisiti:
+        - Istruzione terminatrice dell'header 
+        - Blocco Latch
+
+        Inoltre si cambia l'istruzione di salto condizionato da Header al Latch in un istruzione di salto incondizionato.
+        
+        Nota: questa operazione viene svolta per fare in modo che LLVM capisca che il seconndo loop è vuoto e lo consideri come 
+        Dead code
+    */
     bool secondLoopHeaderToLatch(Loop *loop) {
         BasicBlock *header = loop->getHeader();
         BasicBlock *latch = loop->getLoopLatch();
 
+        // si ottiene la branch instruction alla fine dell'header
         BranchInst *headerBranch =
             dyn_cast_or_null<BranchInst>(header->getTerminator());
 
         if (!headerBranch)
             return false;
 
+        // Si cancella l'istruzione di salto condizionato al Latch e se ne crea una di salto incondizionato
         headerBranch->eraseFromParent();
+        // si collega direttamente l'header con il suo latch
         BranchInst::Create(latch, header);
 
         return true;
     }
 
+    /**
+     * Funzione che collega l'exit della prima guardia con l'exit della seconda guardia
+     * Requisiti
+     *  - preheader del primo loop
+     *  - uscita della seconda guardia
+     * 
+     * Questa funzione viene eseguita solo per i loop guarded, se un loop non è guarded viene fatto ritornare direttamente true
+     */
     bool bypassSecondGuard(Loop* first, Loop* second, LoopInfo &LI){
         BranchInst *firstGuardedBranch = getManualLoopGuard(first, LI);
         BranchInst *secondGuardedBranch = getManualLoopGuard(second, LI);
@@ -505,61 +638,94 @@ namespace
         if(!firstGuardedBranch || !secondGuardedBranch)
             return true;
 
-        
+        // si estrae l'exit block della seconda guardia
         BasicBlock *exitSecondGuardedBlock = getExitFromGuard(secondGuardedBranch, second);
+
+        // si verifica quale successore della prima guardia non porta al pre-header del loop
         unsigned int firstExitSuccessor = firstGuardedBranch->getSuccessor(0) == first->getLoopPreheader()? 1:0;
+
+        // si cambia il successore che porta all'uscita del primo loop facendo in modo che punti all'uscita del secondo loop
         firstGuardedBranch->setSuccessor(firstExitSuccessor, exitSecondGuardedBlock);
         return true;
     }
 
+    /*
+        Funzione helper che controlla se un loop ha la struttura di un loop di tipo For:
+
+        Si può riconoscere un ciclo For dal suo blocco Latch, se questo contiene solamente due istruzioni, una di incremento del contatore e una di salto incondizionato all'Header, allora il loop è un For
+        NOTA: Questo ci serve per escludere altri loop con strutture diverse che non sono stati trattati a lezione    
+    */
     bool isForStructure(Loop* loop){
         return loop->getLoopLatch()->size() == 2;
     }
 
+    /*
+        Funzione che realizza la Loop Fusion di due loop:
 
+        Requisiti:
+        - Devono essere soddisfatte le condizioni di adiacenza
+        - Deve essere soddisfatta la Control Flow Equivalence
+        - Entrambi i loop devono avere lo stesso Trip Count
+        - Non ci devono essere Backwards Dependency
+        - Devono essere entrambi due cicli For
+    */
     bool LoopFusion(LoopInfo &LI, Loop* first, Loop* second, DominatorTree &DT, PostDominatorTree &PDT, ScalarEvolution &SE, DependenceInfo &DI, Function &F){
         errs() << "Analyzing " << first->getName() << " and " << second->getName() << "\n\n";
+        
+        // Devono essere soddisfatte le condizioni di adiacenza
         if(!verifyAdjacentLoops(first, second, LI)){
             errs() << first->getName() << " and " << second->getName() << " are NOT adjacent loops\n";
             return false;
         }    
         errs() << first->getName() << " and " << second->getName() << " are adjacent loops\n";
-
+        
+        // Deve essere soddisfatta la Control Flow Equivalence
         if(!verifyControlFlowEquivalence(first, second, DT, PDT, SE, LI)){
             errs() << first->getName() << " and " << second->getName() << " are NOT control flow equivalent \n";
             return false;
         }   
         errs() << first->getName() << " and " << second->getName() << " are control flow equivalent \n";  
 
+        // Entrambi i loop devono avere lo stesso Trip Count
         if(!verifySameTripCount(first, second, SE)){
             errs() << first->getName() << " and " << second->getName() << " DON'T have the same trip count \n";
             return false;
         }   
         errs() << first->getName() << " and " << second->getName() << " have the same trip count \n";
         
+        // Non ci devono essere Backwards Dependency
         if(!verifyDependencies(first, second, DI, SE)){
             errs() << first->getName() << " and " << second->getName() << " have at least one backward dependence\n";
             return false;
         }
         errs() << first->getName() << " and " << second->getName() << " can be fused \n";
 
-
+        // Devono essere entrambi due cicli For
         if( !isForStructure(first) || !isForStructure(second)){
             errs() << "One loop is in while-form. fuse refused\n";
             return false;
         }
 
+        // Si ottengono le Induction Variable di entrambi i loop prima di effettuare la Fusion, questo perchè in questo modo evitiamo che i puntatori delle IV si invalidino a seguito proprio di alcune operazioni della Fusion
         PHINode* firstIV = getLoopInductionVariable(first, SE);
         PHINode* secondIV = getLoopInductionVariable(second, SE);
         
-
+        // Si inserisce il Body del secondo loop nel Body del primo, se per un qualche motivo questa operazione fallisce si abortisce la fusione di questi due cicli
         if(!bodyConnect(first, second)) return false;
+        
+        // Si collega l'Exit Block del secondo loop all'Header del primo, se per un qualche motivo questa operazione fallisce si abortisce la fusione di questi due cicli
         if(!headerExitConnect(first, second)) return false;
+
+        // Si collega l'Header del secondo loop con il suo Latch, se per un qualche motivo questa operazione fallisce si abortisce la fusione di questi due cicli
         if(!secondLoopHeaderToLatch(second)) return false;
+        
+        // Si collega l'exit della prima guardia con l'exit della seconda, se per un qualche motivo questa operazione fallisce si abortisce la fusione di questi due cicli
         if(!bypassSecondGuard(first, second, LI)) return false;
 
+        // Si inserisce l'Induction Variable del secondo loop subito dopo l'induction variable del primo loop
         inductionVariableFusion(firstIV, secondIV, SE);
 
+        // Si ripulisce il codice del programma dal secondo loop ormai vuoto
         EliminateUnreachableBlocks(F);
         errs() << "Loop Fused correctly ! \n";
         
@@ -578,7 +744,14 @@ namespace
             bool fused = true;
             bool result = false;
             
+            // Itero l'intera fase di fusione fino a che non ci sono più fusioni da eseguire
             while (fused) {
+                /**
+                 * Ogni volta che eseguo una funzione devo poter ricalcolare completamente gli oggetti forniti dall'analysis manager
+                 * Questo perchè, cambiando il CFG della funzione i vari puntatori ai loop vengono invalidati, lo schema delle dominanzecambia
+                 * e le relazione tra i vari loop cambiano.
+                 * è quindi necessario svolgere una ri-analisi per ottenere gli oggetti aggiornati e che descrivano il CFG in maniera corretta anche dopo la fusione
+                 */
                 LoopInfo &LI = AM.getResult<LoopAnalysis>(F);
                 DominatorTree &DT = AM.getResult<DominatorTreeAnalysis>(F);
                 PostDominatorTree &PDT = AM.getResult<PostDominatorTreeAnalysis>(F);
@@ -586,17 +759,26 @@ namespace
                 DependenceInfo &DI = AM.getResult<DependenceAnalysis>(F);
 
                 bool fused = false;
-
+                
+                // si crea una mappa che ha come chiave il puntatore al loop padre (eventualmente nullptr per i top-level loops) e come valore
+                // una lista di tutti quanti i loop figli di tale padre (tra loro fratelli) inseriti nell'array in ordine di programam
+                /*
+                    Nota: ogni volta che si esegua una fusione è necessario dover rivalutare anche tutta la mappa.
+                    Questo perchè invalidando LoopInfo si invalidano consequenzialmente anche tutti i puntatori dei loop della mappa
+                    (loop info viene ri-valutato grazie ad una funzione "realease memory" che invalida tali puntatori).
+                */
                 DenseMap<Loop*, SmallVector<Loop*, 10>> LoopSiblingsMap;
 
                 for (Loop *LL : LI.getLoopsInPreorder()) {
                     LoopSiblingsMap[LL->getParentLoop()].push_back(LL);
                 }
 
+                // grazie al fatto che i loop fratelli sono in ordine di programma, posso prenderli a coppie di 2 e verificarne ed effettuarne la fusione
                 for (auto &[FatherLoop, LoopSiblings] : LoopSiblingsMap) {
                     if (fused)
                         break;
 
+                    // scorro i loop nell'array a coppie per verificare la fusione
                     for (unsigned i = 0; i + 1 < LoopSiblings.size(); ++i) {
                         Loop *First = LoopSiblings[i];
                         Loop *Second = LoopSiblings[i + 1];
@@ -616,7 +798,7 @@ namespace
                     break;
 
                 
-
+                // se i loop si fondono correttamente il flag fused viene settato a true e si invalidano le analisi per il ricalcolo
                 AM.invalidate(F, PreservedAnalyses::none());
             }
 
