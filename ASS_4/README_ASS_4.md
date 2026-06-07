@@ -35,7 +35,7 @@ Per verificare questa condizione sono state utilizzate le analisi di dominanza e
 
 Per garantire la control flow equivalence abbiamo implementato il metodo: 
 
-* `verifyControlFlowEquivalence`: utilizza l'analisi di dominanza (DominatorTree) e post-dominanza (PostDominatorTree). 
+* `verifyControlFlowEquivalence`: utilizza l'analisi di dominanza (DominatorTree) e post-dominanza (PostDominatorTree) verificando che il primo loop domini il secondo e che contemporaneamente il secondo loop post-domini il primo.
 * Nel caso di cicli protetti da guardie, sfrutta il metodo isKnownPredicateAt di ScalarEvolution per verificare se la condizione della prima guardia implichi logicamente la veridicità della seconda.
 
 ---
