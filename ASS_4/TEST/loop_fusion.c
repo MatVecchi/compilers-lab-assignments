@@ -3,71 +3,35 @@
 void fun(int d, int k){
     int a[10];
     int b[10];
+    int n = 16;
+    int x= 5;
+    int f = 0;
 
-    d=5;
-    int l = d+100;
-    k = 10;
-    int i = 0;
-    int j=0;
-    
-    /*
-    if(d < k){
-       while(i<d){
-        i++;
-       }
+    for(int i=0; i<n; i++){
+        printf("%d", i);
     }
-    if(d < k ){
-        while(j<d){
-        j++;
-       }
-    } */
-    
+    for(int j=0; j<n; j++){
+        printf("%d", j);
+    }
 
+    if(x < 16){
+        for(int i=1; i<6; i++){
+            printf("%d", i);
+            a[i] = 0;
+        }
+        //printf("ciao");
+    }
+    if( x < 32){
         
-    d = 5;
-    int kplus = k+5;
-
-
-    /*if(d < kplus){
-        for(int i=1; i<d+1; i++){
-            b[i-1] = 16 + b[i-1];
-
-            int a[20];
-            for(int n=0; n<10; n++){
-                a[i]=44;
-            }
-            for(int n=0; n<10; n++){
-                a[i]=55;
-            }
-            for(int n=0; n<10; n++){
-                a[i]=1;
-            }
-            for(int n=0; n<10; n++){
-                a[i]=16;
-            }
-            
-        }
-    }*/
-
-    for(int j=0; j<d; j++){
-        if(d<k){
-            for(int n=0; n<10; n++){
-                a[i]=1;
-            }
-        }
-        if(d<k){
-            for(int n=0; n<10; n++){
-                a[i]=16;
-            }   
-        }
-        for(int z=0; z<d; z++){
-            printf("%d", z);
+        for(int j=0; j<5; j++){
+            printf("%d", j);
+            //a[j] = 16;
+            //f = a[j+1];
+            a[j] = 44;
+            f = a[j]+1;
         }
     }
-    for(int j=0; j<d; j++){
-        printf("%d", kplus);
-    }
-    
-    
-    int x = b[3]; 
+
+
+
 }

@@ -1,4 +1,4 @@
-; ModuleID = 'loop_rotated_test.O0.ll'
+; ModuleID = 'loop_rotated_test.c'
 source_filename = "loop_rotated_test.c"
 target datalayout = "e-m:o-i64:64-i128:128-n32:64-S128-Fn32"
 target triple = "arm64-apple-macosx16.0.0"
@@ -6,27 +6,39 @@ target triple = "arm64-apple-macosx16.0.0"
 ; Function Attrs: noinline nounwind ssp uwtable(sync)
 define void @fun() #0 {
 entry:
+  %m = alloca i32, align 4
+  %i = alloca i32, align 4
+  %j = alloca i32, align 4
+  store i32 16, ptr %m, align 4
+  store i32 0, ptr %i, align 4
+  store i32 0, ptr %j, align 4
   br label %do.body
 
 do.body:                                          ; preds = %do.cond, %entry
-  %i.0 = phi i32 [ 0, %entry ], [ %inc, %do.cond ]
-  %inc = add nsw i32 %i.0, 1
+  %0 = load i32, ptr %i, align 4
+  %inc = add nsw i32 %0, 1
+  store i32 %inc, ptr %i, align 4
   br label %do.cond
 
 do.cond:                                          ; preds = %do.body
-  %cmp = icmp slt i32 %inc, 16
+  %1 = load i32, ptr %i, align 4
+  %2 = load i32, ptr %m, align 4
+  %cmp = icmp slt i32 %1, %2
   br i1 %cmp, label %do.body, label %do.end, !llvm.loop !6
 
 do.end:                                           ; preds = %do.cond
   br label %do.body1
 
 do.body1:                                         ; preds = %do.cond3, %do.end
-  %j.0 = phi i32 [ 0, %do.end ], [ %inc2, %do.cond3 ]
-  %inc2 = add nsw i32 %j.0, 1
+  %3 = load i32, ptr %j, align 4
+  %inc2 = add nsw i32 %3, 1
+  store i32 %inc2, ptr %j, align 4
   br label %do.cond3
 
 do.cond3:                                         ; preds = %do.body1
-  %cmp4 = icmp slt i32 %inc2, 16
+  %4 = load i32, ptr %j, align 4
+  %5 = load i32, ptr %m, align 4
+  %cmp4 = icmp slt i32 %4, %5
   br i1 %cmp4, label %do.body1, label %do.end5, !llvm.loop !8
 
 do.end5:                                          ; preds = %do.cond3

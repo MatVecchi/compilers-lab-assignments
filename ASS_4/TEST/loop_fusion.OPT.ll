@@ -9,79 +9,65 @@ target triple = "arm64-apple-macosx16.0.0"
 define void @fun(i32 noundef %d, i32 noundef %k) #0 {
 entry:
   %a = alloca [10 x i32], align 4
-  %b = alloca [10 x i32], align 4
-  %add = add nsw i32 5, 100
-  %add1 = add nsw i32 10, 5
   br label %for.cond
 
-for.cond:                                         ; preds = %for.inc25, %entry
-  %j2.0 = phi i32 [ 0, %entry ], [ %inc26, %for.inc25 ]
-  %fused.iv = add i32 %j2.0, 0
-  %cmp = icmp slt i32 %j2.0, 5
-  br i1 %cmp, label %for.body, label %for.end35
+for.cond:                                         ; preds = %for.inc, %entry
+  %i.0 = phi i32 [ 0, %entry ], [ %inc, %for.inc ]
+  %fused.iv = add i32 %i.0, 0
+  %cmp = icmp slt i32 %i.0, 16
+  br i1 %cmp, label %for.body, label %for.end7
 
 for.body:                                         ; preds = %for.cond
-  %cmp3 = icmp slt i32 5, 10
-  br i1 %cmp3, label %if.then, label %if.end18
+  %call = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %i.0)
+  br label %for.body3
 
-if.then:                                          ; preds = %for.body
-  br label %for.cond4
+for.inc:                                          ; preds = %for.body3
+  %inc = add nsw i32 %i.0, 1
+  br label %for.cond, !llvm.loop !6
 
-for.cond4:                                        ; preds = %for.inc, %if.then
-  %n.0 = phi i32 [ 0, %if.then ], [ %inc, %for.inc ]
-  %fused.iv1 = add i32 %n.0, 0
-  %cmp5 = icmp slt i32 %n.0, 10
-  br i1 %cmp5, label %for.body6, label %for.end17
-
-for.body6:                                        ; preds = %for.cond4
-  %idxprom = sext i32 0 to i64
-  %arrayidx = getelementptr inbounds [10 x i32], ptr %a, i64 0, i64 %idxprom
-  store i32 1, ptr %arrayidx, align 4
-  br label %for.body12
-
-for.inc:                                          ; preds = %for.body12
-  %inc = add nsw i32 %n.0, 1
-  br label %for.cond4, !llvm.loop !6
-
-for.body12:                                       ; preds = %for.body6
-  %idxprom13 = sext i32 0 to i64
-  %arrayidx14 = getelementptr inbounds [10 x i32], ptr %a, i64 0, i64 %idxprom13
-  store i32 16, ptr %arrayidx14, align 4
+for.body3:                                        ; preds = %for.body
+  %call4 = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %fused.iv)
   br label %for.inc
 
-for.end17:                                        ; preds = %for.cond4
-  br label %if.end18
+for.end7:                                         ; preds = %for.cond
+  %cmp8 = icmp slt i32 5, 16
+  br i1 %cmp8, label %if.then, label %if.end31
 
-if.end18:                                         ; preds = %for.body, %for.end17
-  br label %for.cond19
+if.then:                                          ; preds = %for.end7
+  br label %for.cond10
 
-for.cond19:                                       ; preds = %for.inc22, %if.end18
-  %z.0 = phi i32 [ 0, %if.end18 ], [ %inc23, %for.inc22 ]
-  %cmp20 = icmp slt i32 %z.0, 5
-  br i1 %cmp20, label %for.body21, label %for.end24
+for.cond10:                                       ; preds = %for.inc14, %if.then
+  %i9.0 = phi i32 [ 1, %if.then ], [ %inc15, %for.inc14 ]
+  %fused.iv1 = add i32 %i9.0, -1
+  %cmp11 = icmp slt i32 %i9.0, 6
+  br i1 %cmp11, label %for.body12, label %for.end30
 
-for.body21:                                       ; preds = %for.cond19
-  %call = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %z.0)
-  br label %for.inc22
+for.body12:                                       ; preds = %for.cond10
+  %call13 = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %i9.0)
+  %idxprom = sext i32 %i9.0 to i64
+  %arrayidx = getelementptr inbounds [10 x i32], ptr %a, i64 0, i64 %idxprom
+  store i32 0, ptr %arrayidx, align 4
+  br label %for.body22
 
-for.inc22:                                        ; preds = %for.body21
-  %inc23 = add nsw i32 %z.0, 1
-  br label %for.cond19, !llvm.loop !8
+for.inc14:                                        ; preds = %for.body22
+  %inc15 = add nsw i32 %i9.0, 1
+  br label %for.cond10, !llvm.loop !8
 
-for.end24:                                        ; preds = %for.cond19
-  br label %for.body31
+for.body22:                                       ; preds = %for.body12
+  %call23 = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %fused.iv1)
+  %idxprom24 = sext i32 %fused.iv1 to i64
+  %arrayidx25 = getelementptr inbounds [10 x i32], ptr %a, i64 0, i64 %idxprom24
+  store i32 44, ptr %arrayidx25, align 4
+  %idxprom26 = sext i32 %fused.iv1 to i64
+  %arrayidx27 = getelementptr inbounds [10 x i32], ptr %a, i64 0, i64 %idxprom26
+  %0 = load i32, ptr %arrayidx27, align 4
+  %add = add nsw i32 %0, 1
+  br label %for.inc14
 
-for.inc25:                                        ; preds = %for.body31
-  %inc26 = add nsw i32 %j2.0, 1
-  br label %for.cond, !llvm.loop !9
+for.end30:                                        ; preds = %for.cond10
+  br label %if.end31
 
-for.body31:                                       ; preds = %for.end24
-  %call32 = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %add1)
-  br label %for.inc25
-
-for.end35:                                        ; preds = %for.cond
-  %arrayidx36 = getelementptr inbounds [10 x i32], ptr %b, i64 0, i64 3
-  %0 = load i32, ptr %arrayidx36, align 4
+if.end31:                                         ; preds = %for.end7, %for.end30
   ret void
 }
 
@@ -102,4 +88,3 @@ attributes #1 = { "frame-pointer"="non-leaf" "no-trapping-math"="true" "stack-pr
 !6 = distinct !{!6, !7}
 !7 = !{!"llvm.loop.mustprogress"}
 !8 = distinct !{!8, !7}
-!9 = distinct !{!9, !7}

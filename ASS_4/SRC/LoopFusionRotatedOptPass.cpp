@@ -66,78 +66,8 @@ namespace
         return exitGuardedBlock;
     }
 
-    /**
-     * Funzione helper che preso un loop come argomento ritorna la branch instruction relativa alla guardia.
-     * (Se esiste)
-     *
-     * Nota: è stato necessario creare una funzione helper manuale e non utilizzando l'API di LLVM, poichè 
-     * LLVM riconosce le guardie solo ed unicamente nei loop ROTATED (dove la condizione di uscita è posta nel latch e 
-     * non nell'header).
-     * Non avendo trattato i ROTATED loops si è preferito creare una funzione manuale che ricava la guardia da qualsiasi loop 
-     * (anche non ruotato).
-     * 
-     * 
-     * Per poter ricavare la guardia si verifica se esiste un unico predecessore del preheader del loop e si cerca di ricavarne una branch instruction 
-     * condizionale.
-     * L'unico predecessore ci garantisce che tale predecessore (possibile guardia) domini il preheader.
-     * Se ci fossero più predecessori si riuscirebbe ad arrivare al preheader da blocchi diversi --> non è protetto direttamente
-     * da una guardia.
-     * 
-     * L'unico predecessore non deve essere a sua volta un header di un altro loop (nel caso di loop innestati c'è la possibilità
-     * che la branch instruction dell'header del loop venga erroneamente riconosciuta come guardia e questo va evitato).
-     * 
-     * Una volta ottenuto l'unico predecessore del preheader del loop (che non è a sua volta un header di un altro loop padre)
-     * si prende l'istruzione terminatore di tale predecessore e si verifica se è una conditional branch instruction.
-     * Se è un branch condizionale --> si è trovata la guarded branch instruction (guardia)
-     */
-    BranchInst *getManualLoopGuard(Loop *L, LoopInfo &LI) {
-        // estraggo il preheader del loop
-        BasicBlock *preheader = L->getLoopPreheader();
-        if (!preheader)
-            return nullptr;
-
-        // verifico se ha un unico predecessore (la guardia deve dominare il preheader)
-        BasicBlock *pred = preheader->getSinglePredecessor();
-        if (!pred)
-            return nullptr;
-
-        /**
-         * Il predecessore deve avere una conditional branch instruction come terminatore, ma questa caratteristica è
-         * presente anche negli header dei loop.
-         * Quindi se si sta analizzando nested loop, c'è la posssibilità che il predecessore del preheader del nested loop sia 
-         * l'header del loop padere, il quale verrebbe erroneamente riconosciuto come guardia.
-         * 
-         * ex:
-         * for(int i=0; i<N; i++){
-         *      for(int j=0; j<N; j++){
-         *          ...
-         *      }
-         * }
-         * 
-         * Il preheader del nested loop ha come unico predecessore l'header del padre, che ha come terminatore una
-         * branch instruction condizionale (potrebbe essere erroneamente scambiata come guardia).
-         * 
-         * Per evitare questa situazione si verifica che il predecessore non sia a sua volta l'header del loop padre.
-         */
-        if (Loop *PredLoop = LI.getLoopFor(pred)) {
-            if (PredLoop->getHeader() == pred)
-                return nullptr;
-        }
-
-        // ricavo la branch instruction dal terminatore del predecessore
-        auto *BI = dyn_cast<BranchInst>(pred->getTerminator());
-        if (!BI || !BI->isConditional())
-            return nullptr;
-
-
-        // verifico se tale conditional branch instruction porta effettivamente al preheader del loop (controllo ausiliare)
-        if (BI->getSuccessor(0) != preheader &&
-            BI->getSuccessor(1) != preheader)
-            return nullptr;
-
-        return BI;
-    }
-
+    
+    
 
 
     /**
@@ -164,19 +94,19 @@ namespace
     bool verifyAdjacentLoops(Loop* first, Loop* second, LoopInfo &LI){
 
         // provo ad estrarre la guardia del primo loop
-        if(auto *firstGuarded = getManualLoopGuard(first, LI)){
+        if(auto *firstGuarded = first->getLoopGuardBranch()){
 
             // il primo loop è guarded e ne ricavo la branch instruction con un dynamic cast
-            errs() << first->getName() << " loop is guarded\n";
+            errs() << first->getName() <<" loop is guarded\n";
             if(BranchInst *firstGuardedBranch = dyn_cast<BranchInst>(firstGuarded)){
                 BasicBlock *exitFirstGuardedBlock = getExitFromGuard(firstGuardedBranch, first);
                 
                 // verifico se anche il secondo loop è guarded 
-                if(auto *secondLoopGuarded = getManualLoopGuard(second, LI)){
+                if(auto *secondLoopGuarded = second->getLoopGuardBranch()){
                     if(BranchInst *secondLoopGuardedBranch = dyn_cast<BranchInst>(secondLoopGuarded)){
 
                         // il secondo loop è guarded e ne ho ricavato la branch instruction con un dynamic cast
-                        errs() << second->getName() <<" loop is guarded" << "\n";
+                        errs()<< second->getName() << " loop is guarded" << "\n";
 
                         // ricavo il blocco in cui è contenuta la guarded branch del secondo loop
                         BasicBlock *secondLoopGuardedBlock = secondLoopGuardedBranch->getParent();
@@ -196,18 +126,9 @@ namespace
                             return false;
                         
                         // la seconda guardia non ha istruzioni aggiuntive e le due guardie sono correttamente conllegate 
+
                         // verifico se ci sono istruzioni ausiliari nel preheader e ritorno il risultato
-                        bool noPreheaderInst = areNoPreHeaderInstruction(second);
-                        
-                        // nel caso dei guarded l'uscita del primo loop non coincide esattamente con l'uscita della guardia
-                        // va quindi verificato che l'uscita del primo loop contenga solo una istruzione, che è quella che 
-                        // permette di fare un unconditional branch verso l'uscita della guard.
-                        // L'unconditional branch viene sempre messo da LLVM, se oltre ad essa è presente anche almeno un'altra
-                        // istruzione --> si ritorna false per non adiacenza
-                        BasicBlock *firstExitBB = first->getUniqueExitBlock();
-                        if(!firstExitBB) return false;
-                        bool noExitFromFirstLoopInst = firstExitBB->size() == 1;
-                        return noExitFromFirstLoopInst && noPreheaderInst;
+                        return areNoPreHeaderInstruction(second);
                     }
                 }
             }
@@ -228,12 +149,12 @@ namespace
 
 
     bool verifyControlFlowEquivalence(Loop* first, Loop* second, DominatorTree &DT, PostDominatorTree &PDT, ScalarEvolution &SE, LoopInfo &LI){
-        BranchInst* firstGuardBranch = getManualLoopGuard(first, LI);
-        BranchInst* secondGuardBranch = getManualLoopGuard(second, LI);
+        BranchInst* firstGuardBranch = first->getLoopGuardBranch();
+        BranchInst* secondGuardBranch = second->getLoopGuardBranch();
         bool guarded = (firstGuardBranch && secondGuardBranch);
 
         if(guarded){
-            
+            //errs() << "are guarded\n";
             // verifico che la veridicità della prima istruzione implica la veridicità della seconda
             // ex: se la prima è n>10 e la seconda n>5 --> allora è true.
             BasicBlock *firstGuard = firstGuardBranch->getParent();
@@ -347,23 +268,6 @@ namespace
         return true;
     }
 
-    PHINode* getLoopInductionVariable(Loop *loop, ScalarEvolution &SE) {
-        BasicBlock *header = loop->getHeader();
-
-        for (auto &instr : *header) {
-            if (auto *phiInstr = dyn_cast<PHINode>(&instr)) {
-                const SCEV *scev = SE.getSCEV(phiInstr);
-
-                if (auto *addRec = dyn_cast<SCEVAddRecExpr>(scev)) {
-                    if (addRec->getLoop() == loop) {
-                        return phiInstr; 
-                    }
-                }
-            }
-        }
-        return nullptr;
-    }
-
 
     const SCEV* getInductionVariableDifference(PHINode* firstInductionVariable, PHINode* secondInductionVariable, ScalarEvolution &SE){
         const SCEVAddRecExpr *firstIVSCEV = dyn_cast<SCEVAddRecExpr>(SE.getSCEV(firstInductionVariable));
@@ -409,16 +313,7 @@ namespace
 
 
     BasicBlock *getBodyStart(Loop* loop){
-        BasicBlock *header = loop->getHeader();
-        BranchInst *headerBranch = dyn_cast<BranchInst>(header->getTerminator());
-        if(!headerBranch)
-            return nullptr;
-            
-        SmallVector<BasicBlock *, 10> loopExits;
-        loop->getExitBlocks(loopExits);
-        if(contains(loopExits, headerBranch->getSuccessor(0)))
-            return headerBranch->getSuccessor(1);
-        return headerBranch->getSuccessor(0);
+        return loop->getHeader();
     }
 
 
@@ -459,48 +354,47 @@ namespace
         // primo loop
         secondTerminatorBodyBranch->setSuccessor(0, firstLatch);
         
+        
         return true;
     }
 
-    bool headerExitConnect(Loop *first, Loop *second){
-        BasicBlock *firstBody = getBodyStart(first);
-        if(!firstBody)
-            return false;
+    bool LatchExitConnect(Loop *first, Loop *second){
+        BasicBlock *firstLatch = first->getLoopLatch();
         
         BasicBlock *firstHeader = first->getHeader();
-        BranchInst *firstHeaderBranch = dyn_cast<BranchInst>(firstHeader->getTerminator());
+        BranchInst *firstLatchBranch = dyn_cast<BranchInst>(firstLatch->getTerminator());
+        unsigned int firstLatchExitSuccessorIndex = firstLatchBranch->getSuccessor(0) == firstHeader ? 1 : 0;
 
-        unsigned int firstHeaderExitSuccessorIndex = firstHeaderBranch->getSuccessor(0) == firstBody ? 1 : 0;
         SmallVector<BasicBlock *, 10> secondLoopExits;
         // c'è solo un exit block perchè se ce ne fossere altri si formerebbe un problema di dominanza e post-dominanza
         // e il trip count non si riuscirebbe a calcolare
         second->getExitBlocks(secondLoopExits);
 
         // il successore non body dell'header del primo loop diventa il primo (ed unico) successor del secondo loop.
-        firstHeaderBranch->setSuccessor(firstHeaderExitSuccessorIndex, secondLoopExits[0] );
+        firstLatchBranch->setSuccessor(firstLatchExitSuccessorIndex, secondLoopExits[0] );
 
         return true;
     }
 
-    bool secondLoopHeaderToLatch(Loop *loop) {
+    bool secondLoopLatchToHeader(Loop *loop) {
         BasicBlock *header = loop->getHeader();
         BasicBlock *latch = loop->getLoopLatch();
 
-        BranchInst *headerBranch =
-            dyn_cast_or_null<BranchInst>(header->getTerminator());
+        BranchInst *LatchBranch =
+            dyn_cast_or_null<BranchInst>(latch->getTerminator());
 
-        if (!headerBranch)
+        if (!LatchBranch)
             return false;
 
-        headerBranch->eraseFromParent();
-        BranchInst::Create(latch, header);
+        LatchBranch->eraseFromParent();
+        BranchInst::Create(header, latch);
 
         return true;
     }
 
     bool bypassSecondGuard(Loop* first, Loop* second, LoopInfo &LI){
-        BranchInst *firstGuardedBranch = getManualLoopGuard(first, LI);
-        BranchInst *secondGuardedBranch = getManualLoopGuard(second, LI);
+        BranchInst *firstGuardedBranch = first->getLoopGuardBranch();
+        BranchInst *secondGuardedBranch = second->getLoopGuardBranch();
 
         if(!firstGuardedBranch || !secondGuardedBranch)
             return true;
@@ -512,13 +406,11 @@ namespace
         return true;
     }
 
-    bool isForStructure(Loop* loop){
-        return loop->getLoopLatch()->size() == 2;
-    }
 
 
     bool LoopFusion(LoopInfo &LI, Loop* first, Loop* second, DominatorTree &DT, PostDominatorTree &PDT, ScalarEvolution &SE, DependenceInfo &DI, Function &F){
         errs() << "Analyzing " << first->getName() << " and " << second->getName() << "\n\n";
+
         if(!verifyAdjacentLoops(first, second, LI)){
             errs() << first->getName() << " and " << second->getName() << " are NOT adjacent loops\n";
             return false;
@@ -544,23 +436,20 @@ namespace
         errs() << first->getName() << " and " << second->getName() << " can be fused \n";
 
 
-        if( !isForStructure(first) || !isForStructure(second)){
-            errs() << "One loop is in while-form. fuse refused\n";
-            return false;
-        }
-
-        PHINode* firstIV = getLoopInductionVariable(first, SE);
-        PHINode* secondIV = getLoopInductionVariable(second, SE);
+        PHINode* firstIV = first->getInductionVariable(SE);
+        PHINode* secondIV = second->getInductionVariable(SE);
         
-
-        if(!bodyConnect(first, second)) return false;
-        if(!headerExitConnect(first, second)) return false;
-        if(!secondLoopHeaderToLatch(second)) return false;
+        // l'ordine rispetto ai non rotated loops cambia, perchè quando cerco di modificare le guardie se ho già spostato i 
+        // body il controllo su getGuardedBranch fallisce
         if(!bypassSecondGuard(first, second, LI)) return false;
-
+        if(!LatchExitConnect(first, second)) return false;
+        if(!bodyConnect(first, second)) return false;
+        if(!secondLoopLatchToHeader(second)) return false;
+        
         inductionVariableFusion(firstIV, secondIV, SE);
 
         EliminateUnreachableBlocks(F);
+
         errs() << "Loop Fused correctly ! \n";
         
         return true;
@@ -570,15 +459,16 @@ namespace
 
 // --> è un passo di trasformazione utilizzato per la loop fusion
 //-----------------------------------------------------------------------------
-    struct LoopFusionOptPass : PassInfoMixin<LoopFusionOptPass>
+    struct LoopFusionRotatedOptPass : PassInfoMixin<LoopFusionRotatedOptPass>
     {
         // Main entry point, takes IR unit to run the pass on (&F) and the
         // corresponding pass manager (to be queried if need be)
         PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM){
             bool fused = true;
             bool result = false;
-            
+
             while (fused) {
+                errs() << "\n";
                 LoopInfo &LI = AM.getResult<LoopAnalysis>(F);
                 DominatorTree &DT = AM.getResult<DominatorTreeAnalysis>(F);
                 PostDominatorTree &PDT = AM.getResult<PostDominatorTreeAnalysis>(F);
@@ -589,6 +479,7 @@ namespace
 
                 DenseMap<Loop*, SmallVector<Loop*, 10>> LoopSiblingsMap;
 
+                
                 for (Loop *LL : LI.getLoopsInPreorder()) {
                     LoopSiblingsMap[LL->getParentLoop()].push_back(LL);
                 }
@@ -633,18 +524,18 @@ namespace
 
 
 // registrazione del passo nel Pass Builder
-llvm::PassPluginLibraryInfo getLoopFusionOptPassPluginInfo()
+llvm::PassPluginLibraryInfo getLoopFusionRotatedOptPassPluginInfo()
 {
-    return {LLVM_PLUGIN_API_VERSION, "LoopFusionOptPass", LLVM_VERSION_STRING,
+    return {LLVM_PLUGIN_API_VERSION, "LoopFusionRotatedOptPass", LLVM_VERSION_STRING,
             [](PassBuilder &PB)
             {
                 PB.registerPipelineParsingCallback(
                     [](StringRef Name, FunctionPassManager &FPM,
                        ArrayRef<PassBuilder::PipelineElement>)
                     {
-                        if (Name == "loop-fusion-opt")
+                        if (Name == "loop-fusion-r-opt")
                         {
-                            FPM.addPass(LoopFusionOptPass());
+                            FPM.addPass(LoopFusionRotatedOptPass());
                             return true;
                         }
                         return false;
@@ -658,5 +549,5 @@ llvm::PassPluginLibraryInfo getLoopFusionOptPassPluginInfo()
 extern "C" LLVM_ATTRIBUTE_WEAK ::llvm::PassPluginLibraryInfo
 llvmGetPassPluginInfo()
 {
-    return getLoopFusionOptPassPluginInfo();
+    return getLoopFusionRotatedOptPassPluginInfo();
 }
