@@ -24,7 +24,8 @@ Prima di fondere due loop, il compilatore deve assicurarsi che entrambi eseguano
 Per analizzare questo aspetto, abbiamo implementato le seguenti funzioni:
 * `verifySameTripCount`: effettua l'analisi ScalarEvolution di LLVM per verificare che il contatore delle iterazioni coincida matematicamente per entrambi i loop.
 * `isForStructure`: controlla che i loop seguano la struttura di un ciclo for (verificando che il latch contenga esattamente due istruzioni), e scarta la fusion in presenza di strutture while generiche che renderebbero insicuro il calcolo statico delle iterazioni.
-
+(e' stato necessario creare questa funzione perchè tra il ciclo while, for ci sono delle leggere differenze in termini di struttura.
+Infatti il ciclo while non ha un blocco di latch esplicito come nel for ma lo ha incorporato nell'ultimo blocco del body.)
 ---
 
 ## 3. Verifica della Control Flow Equivalence
