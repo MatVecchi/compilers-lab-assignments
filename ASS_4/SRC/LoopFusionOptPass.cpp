@@ -732,7 +732,7 @@ namespace
         return true;
     }
 //-----------------------------------------------------------------------------
-// Loop Fusion (LICM) pass
+// Loop Fusion  pass
 
 // --> è un passo di trasformazione utilizzato per la loop fusion
 //-----------------------------------------------------------------------------

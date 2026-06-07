@@ -22,8 +22,8 @@ for.body:                                         ; preds = %for.cond
 
 for.cond1:                                        ; preds = %for.inc, %for.body
   %j.0 = phi i32 [ 0, %for.body ], [ %inc, %for.inc ]
-  %fused.iv4 = add i32 %j.0, 5
-  %fused.iv3 = add i32 %j.0, 0
+  %fused.iv3 = add i32 %j.0, 5
+  %fused.iv2 = add i32 %j.0, 0
   %cmp2 = icmp slt i32 %j.0, 5
   br i1 %cmp2, label %for.body3, label %for.end19
 
@@ -36,11 +36,11 @@ for.inc:                                          ; preds = %for.body15
   br label %for.cond1, !llvm.loop !6
 
 for.body7:                                        ; preds = %for.body3
-  %call8 = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %fused.iv3)
+  %call8 = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %fused.iv2)
   br label %for.body15
 
 for.body15:                                       ; preds = %for.body7
-  %call16 = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %fused.iv4)
+  %call16 = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %fused.iv3)
   br label %for.inc
 
 for.end19:                                        ; preds = %for.cond1
@@ -71,7 +71,7 @@ if.then:                                          ; preds = %for.body36
 
 for.cond38:                                       ; preds = %for.inc42, %if.then
   %m.0 = phi i32 [ 0, %if.then ], [ %inc43, %for.inc42 ]
-  %fused.iv2 = add i32 %m.0, 0
+  %fused.iv4 = add i32 %m.0, 0
   %cmp39 = icmp slt i32 %m.0, 4
   br i1 %cmp39, label %for.body40, label %for.end54
 
@@ -84,7 +84,7 @@ for.inc42:                                        ; preds = %for.body50
   br label %for.cond38, !llvm.loop !9
 
 for.body50:                                       ; preds = %for.body40
-  %call51 = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %fused.iv2)
+  %call51 = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %fused.iv4)
   br label %for.inc42
 
 for.end54:                                        ; preds = %for.cond38
