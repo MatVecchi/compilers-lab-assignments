@@ -2,6 +2,12 @@
 
 La **Loop Fusion** è una tecnica di ottimizzazione del codice che consiste nell'unire i corpi di due loop distinti e consecutivi in un unico loop. Questa trasformazione mira a ridurre l'overhead associato alle istruzioni del control flow e a migliorare la località dei dati nella cache riutilizzando immediatamente i valori calcolati.
 
+# (extra) Implementazione della Loop Fusion con rotated Loops
+Si è incluso anche una versione del passo di Loop Fusion che lavora solo con rotated loops.
+Un rotated loop è un loop dove la condizione di uscita/ripetizione è posta in corrispondenza del Latch e non nell'header.
+Si è deciso di aggiungere questo passo per approfondimento extra.
+Prima di eseguire il passo è necessario chiamare il passo LLVM `loop-rotate` che trasforma ogni loop in rotated loops.
+
 ---
 
 ## 1. Verifica delle Condizioni di Adiacenza 
