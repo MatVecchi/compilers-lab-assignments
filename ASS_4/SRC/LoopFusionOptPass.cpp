@@ -330,19 +330,28 @@ namespace
      * l'API di LLVM getInductionVariable funziona solo per i loop rotated.
      * In alternativa ritorna nullptr.
      * 
-     * Prendo il phi node corrispondente alla condizione di ripetizione del loop
+     * Per ricavare la induction variable di un loop non ruotato devo trovare la PHI instruction definita nell'header del
+     * loop che viene utilizzata come operando della branch instruction dell'header (che definisce l'uscita o l'iterazione)
+     * Inoltre come ulteriore controllo si verifica se da tale PHI instruction si riesce a ricavare un oggetto SCEV
+     * (nello specifico l'oggetto SCEVAddRecExpr) che definisce il range di valori e comportamento di tale IV.
+     * Il formato dello SCEVAddRecExpr è: {base, +, step}
      */
     PHINode* getLoopInductionVariable(Loop *loop, ScalarEvolution &SE) {
+        // prendo l'istruzione branch alla fine dell'header del loop
         BasicBlock *header = loop->getHeader();
         auto *BI = dyn_cast<BranchInst>(header->getTerminator());
         if (!BI || !BI->isConditional())
             return nullptr;
 
+        // ne ricavo la condizione 
         auto *cmp = dyn_cast<ICmpInst>(BI->getCondition());
         if (!cmp)
             return nullptr;
 
+        // verifico tutti gli operandi utilizzati in tale condizione.
         for (Value *Op : cmp->operands()) {
+            // se l'operando è un PHI node, definito nell'header del loop e inoltre è ricavabile una SCEVAddRecExpr relativa al 
+            // loop di cui si vuole ricavare la IV, allora è il PHI node corretto che rappresenta la IV del loop
             if (auto *PHI = dyn_cast<PHINode>(Op)) {
                 if (PHI->getParent() == header){
                     
@@ -422,8 +431,13 @@ namespace
 
     /*
         Funzione helper che dato un loop ne ricava il suo primo blocco Body
+
+        Nota: i loop ruotati hanno l'header che coincide con il primo blocco del body
+
+        Per i loop non ruotati è necessario ottenere il successore dell'header del loop che non è l'uscita del loop stesso
     */
     BasicBlock *getBodyStart(Loop* loop){
+        // nei loop ruotati il primo blocco del body è l'header
         if(loop->isRotatedForm())
             return loop->getHeader();
 
@@ -499,28 +513,52 @@ namespace
         return true;
     }
 
-    
+    /**
+     * Funzione generica che permette di poter collegare il blocco source con la prima (ed unica) uscita del loop.
+     * Requisiti:
+     *  - second loop da cui si calcola l'uscita
+     *  - source: blocco da cui si vuole creare l'arco verso l'uscita
+     *  - internalPoint: blocco interno al loop che non è l'uscita.
+     * 
+     * Questa funzione viene richiamata sia per i loop ruotati che per i loop non ruotati per collegare l'header del primo loop 
+     * all'exit del secondo loop ( non ruotato ) o il latch del primo loop all'exit del secondo loop ( ruotato ).
+     * 
+     * In entrambi i casi le operazioni sono molto simili:
+     * Si prende la branch instruction condizionale alla fine del blocco di source e la si modifica facendo in modo che
+     * il ramo che porta verso l'uscita (e che non porta verso internalPoint) venga impostato all'uscita del secondo loop.
+     * 
+     * Nel caso dei loop non ruotati: source = header e internalPoint=primo blocco del body
+     * Nel caso dei loop ruotati: source = latch e internalPoint = header del loop.
+     * 
+     * (InternalPoint è il basic block successore del source che non deve essere modificato e che non è l'uscita)
+     */
     bool loopRedirectToExit(Loop* second, BasicBlock* source, BasicBlock* internalPoint){
         if(!source || !internalPoint)
             return false;
 
+        // ottengo la branch instruction terminatrice di source
         BranchInst* terminatorBranch = dyn_cast<BranchInst>(source->getTerminator());
         if(!terminatorBranch || !terminatorBranch->isConditional())
             return false;
 
+        // ottengo l'indice del successore relativo all'uscita (che non è InternalPoint)
         unsigned exitBranchIndex = terminatorBranch->getSuccessor(0) == internalPoint? 1:0;
+
+        // ottengo l'uscita del secondo loop
         SmallVector<BasicBlock*, 10> secondExits;
         second->getExitBlocks(secondExits);
 
         if(secondExits.empty())
             return false;
 
+        // modifico la branch instruction condizionale della source facendo in modo che porti all'uscita del secondo loop
         terminatorBranch->setSuccessor(exitBranchIndex, secondExits[0]);
         return true;
     }
 
     /**
      * Funzione che si occupa di collegare l'uscita dell'header del primo loop con l'exit block del secondo loop.
+     * (solo se il loop non è ruotato)
      * 
      * Requisiti:
      *  - header del primo loop
@@ -531,7 +569,15 @@ namespace
         return loopRedirectToExit(second, first->getHeader(), getBodyStart(first));
     }
 
-
+    /**
+     * Funzione che si occupa di collegare l'uscita del latch del primo loop con l'exit block del secondo loop.
+     * (solo se il loop è ruotato)
+     * 
+     * Requisiti:
+     *  - latch del primo loop
+     *  - header del primo loop
+     *  - exit block del secondo loop
+     */
     bool LatchExitConnect(Loop* first, Loop* second){
         return loopRedirectToExit(second, first->getLoopLatch(), first->getHeader());
     }
@@ -544,9 +590,6 @@ namespace
         - Blocco Latch
 
         Inoltre si cambia l'istruzione di salto condizionato da Header al Latch in un istruzione di salto incondizionato.
-        
-        Nota: questa operazione viene svolta per fare in modo che LLVM capisca che il seconndo loop è vuoto e lo consideri come 
-        Dead code
     */
     bool secondLoopHeaderToLatch(Loop *loop) {
         BasicBlock *header = loop->getHeader();
@@ -561,6 +604,7 @@ namespace
 
         unsigned bodyStartIndex = 0;
 
+        // modifico la branch instruction terminatrice dell'header per fare in modo che punti verso il latch
         if(!loop->isRotatedForm())
             bodyStartIndex = headerBranch->getSuccessor(0) == getBodyStart(loop)? 0:1;
         headerBranch->setSuccessor(bodyStartIndex, latch);
@@ -604,6 +648,13 @@ namespace
         return loop->getLoopLatch()->size() == 2;
     }
 
+    /**
+     * Funzione che si occupa di fondere due loop ruotati
+     * Essendo ruotati è possibile utilizzare l'API di LLVM getInductionVariable direttamente.
+     * 
+     * Inoltre essendo loop ruotati è necessario prima modificare i collegamenti delle guardie e poi modificare il resto del body.
+     * Poichè una volta modificato il body l'API di llvm GetGuardedBranch non riuscirà più a trovare la relativa guardia.
+     */
     bool fuseRotatedLoops(Loop* first, Loop* second, ScalarEvolution &SE, LoopInfo &LI){
         // posso usare direttamente le API di LLVM essendo loop rotated
         PHINode* firstIV = first->getInductionVariable(SE);
@@ -624,6 +675,11 @@ namespace
         return true;
     }
 
+    /**
+     * Funzione che si occupa di fondere i loop non ruotati.
+     * Nota: essendo i loop non ruotati la variabile di induzione deve essere calcolata manualmente, poichè l'API
+     * di llvm riesce a calcolarla solo con i loop ruotati.
+     */
     bool fuseNonRotatedLoops(Loop* first, Loop* second, ScalarEvolution &SE, LoopInfo &LI){
         // Devono essere entrambi due cicli For
         if( !isForStructure(first) || !isForStructure(second)){
@@ -645,7 +701,7 @@ namespace
         if(!secondLoopHeaderToLatch(second)) return false;
         
         // Si collega l'exit della prima guardia con l'exit della seconda, se per un qualche motivo questa operazione fallisce si abortisce la fusione di questi due cicli
-        if(!bypassSecondGuard(first, second, LI)) return false;
+        //if(!bypassSecondGuard(first, second, LI)) return false;
 
         // Si inserisce l'Induction Variable del secondo loop subito dopo l'induction variable del primo loop
         inductionVariableFusion(firstIV, secondIV, SE);
@@ -661,7 +717,7 @@ namespace
         - Deve essere soddisfatta la Control Flow Equivalence
         - Entrambi i loop devono avere lo stesso Trip Count
         - Non ci devono essere Backwards Dependency
-        - Devono essere entrambi due cicli For
+        - Devono essere entrambi due cicli dello stesso tipo (for o do-while guarded)
     */
     bool LoopFusion(LoopInfo &LI, Loop* first, Loop* second, DominatorTree &DT, PostDominatorTree &PDT, ScalarEvolution &SE, DependenceInfo &DI, Function &F){
         errs() << "Analyzing " << first->getName() << " and " << second->getName() << "\n\n";
@@ -694,11 +750,14 @@ namespace
         }
         errs() << first->getName() << " and " << second->getName() << " can be fused \n";
 
+        // fondo i loop in base a se sono rotated o no
         bool correctFusion = false;
         if(first->isRotatedForm() && second->isRotatedForm())
             correctFusion = fuseRotatedLoops(first, second, SE, LI);
         else
             correctFusion = fuseNonRotatedLoops(first, second, SE, LI);
+
+        // verifico la corretta fusione
 
         if(!correctFusion){
             errs() << "Fusion error !\n";
