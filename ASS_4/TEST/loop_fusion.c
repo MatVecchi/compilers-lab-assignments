@@ -15,21 +15,18 @@ void fun(int d, int k){
     }
 
     if(x < 16){
-        for(int i=1; i<6; i++){
+        int i = 1;
+        do{
             a[i] = 0;
-        }
-        //printf("ciao");
+            i ++;
+        }while(i < 6);
     }
     if( x < 32){
-        
-        for(int j=0; j<5; j++){
-            //a[j] = 16;
-            //f = a[j+1];
-            a[j] = 44;
-            f = a[j]+1;
-        }
+        int i = 0;
+        do{
+            a[i] = 44;
+            f = a[i] + 1;
+            i ++;
+        }while(i < 5);
     }
-
-
-
 }

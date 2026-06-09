@@ -1,5 +1,12 @@
 # Implementazione della Loop Invariant Code Motion del Terzo Assignment
 
+## Come eseguire il passo
+Per generare i file che sfruttano l'ottimizzazione di questo passo bisogna eseguire il seguente comando:
+
+```bash 
+clang -O0 -Xclang -disable-O0-optnone -emit-llvm -fno-discard-value-names -S -c loop_icm.c -o loop_icm.O0.ll && opt -passes=mem2reg -S loop_icm.O0.ll -o loop_icm.O0.ll && opt -S --load-pass-plugin ../BUILD/libLoopInvariantOptPass.so -passes=loop-invariant-opt loop_icm.O0.ll -o loop_icm.OPT.ll
+```
+
 ## 1. Implementazione della Loop Invariant
 Per la definizione di Loop Invariant si definisce invariante un'istruzione, interna a un ciclo, il cui risultato rimane costante durante tutte le iterazioni.
 

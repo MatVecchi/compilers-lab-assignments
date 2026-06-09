@@ -1,5 +1,23 @@
 # Implementazione dei 3 passi LLVM del Primo Assignment
 
+## Come eseguire il passo
+Per generare i file che sfruttano l'ottimizzazione di questi 3 passi bisogna eseguire i seguenti comandi:
+
+### Algebric Identity
+```bash 
+clang -O0 -Xclang -disable-O0-optnone -emit-llvm -fno-discard-value-names -S -c alg_id.c -o alg_id.O0.ll && opt -passes=mem2reg -S alg_id.O0.ll -o alg_id.O0.ll && opt -S --load-pass-plugin ../BUILD/libAlgebricIdOptsPass.so -passes=algebric-id-opt alg_id.O0.ll -o alg_id.OPT.ll
+```
+
+### Strength Reduction
+```bash 
+clang -O0 -Xclang -disable-O0-optnone -emit-llvm -fno-discard-value-names -S -c str_red.c -o str_red.O0.ll && opt -passes=mem2reg -S str_red.O0.ll -o str_red.O0.ll && opt -S --load-pass-plugin ../BUILD/libStrRedOptsPass.so -passes=str-red-opt str_red.O0.ll -o str_red.OPT.ll
+```
+
+### Multi Instruction
+```bash 
+clang -O0 -Xclang -disable-O0-optnone -emit-llvm -fno-discard-value-names -S -c multi_inst.c -o multi_inst.O0.ll && opt -passes=mem2reg -S multi_inst.O0.ll -o multi_inst.O0.ll && opt -S --load-pass-plugin ../BUILD/libMultiInstOptPass.so -passes=multi-inst-opt multi_inst.O0.ll -o multi_inst.OPT.ll
+```
+
 ## 1. Algebric Identity Pass
 AlgebricIdOptsPass implementation è un passo che verifica l'identità algebrica. Di seguito sono mostrati gli scenari ottimizzabili e la relativa trasformazione.
 
