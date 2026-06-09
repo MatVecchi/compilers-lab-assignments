@@ -25,12 +25,12 @@ clang -O0 -Xclang -disable-O0-optnone -emit-llvm -fno-discard-value-names -S -c 
 
 Per la variante del passo di ottimizzazione che sfrutta solamente i loop ruotati i comandi sono i seguenti:
 
-### Loop fusion
+### Loop fusion con loop ruotati
 ```bash 
-clang -O0 -Xclang -disable-O0-optnone -emit-llvm -fno-discard-value-names -S -c loop_fusion.c -o loop_fusion_rotated.O0.ll && opt -passes=mem2reg -S loop_fusion_rotated.O0.ll -o loop_fusion_rotated.O0.ll && opt -passes=loop-rotate -S loop_complex_rotate.O0.ll -o loop_complex_rotated.O0.ll && opt -S --load-pass-plugin ../BUILD/libLoopFusionRotatedOptPass.so -passes=loop-fusion-r-opt loop_fusion_rotated.O0.ll -o loop_fusion_rotated.OPT.ll && opt -passes=dot-cfg -cfg-dot-filename-prefix=loop_fusion_rotated loop_fusion_rotated.OPT.ll
+clang -O0 -Xclang -disable-O0-optnone -emit-llvm -fno-discard-value-names -S -c loop_fusion.c -o loop_fusion_rotated.O0.ll && opt -passes=mem2reg -S loop_fusion_rotated.O0.ll -o loop_fusion_rotated.O0.ll && opt -passes=loop-rotate -S loop_fusion_rotated.O0.ll -o loop_fusion_rotated.O0.ll && opt -S --load-pass-plugin ../BUILD/libLoopFusionRotatedOptPass.so -passes=loop-fusion-r-opt loop_fusion_rotated.O0.ll -o loop_fusion_rotated.OPT.ll && opt -passes=dot-cfg -cfg-dot-filename-prefix=loop_fusion_rotated loop_fusion_rotated.OPT.ll
 ```
 
-### Loop fusion complesso
+### Loop fusion complesso con loop ruotati
 ```bash 
 clang -O0 -Xclang -disable-O0-optnone -emit-llvm -fno-discard-value-names -S -c loop_complex.c -o loop_complex_rotated.O0.ll && opt -passes=mem2reg -S loop_complex_rotated.O0.ll -o loop_complex_rotated.O0.ll && opt -passes=loop-rotate -S loop_complex_rotated.O0.ll -o loop_complex_rotated.O0.ll && opt -S --load-pass-plugin ../BUILD/libLoopFusionRotatedOptPass.so -passes=loop-fusion-r-opt loop_complex_rotated.O0.ll -o loop_complex_rotated.OPT.ll && opt -passes=dot-cfg -cfg-dot-filename-prefix=loop_complex_rotated loop_complex_rotated.OPT.ll
 ```
