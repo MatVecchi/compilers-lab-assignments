@@ -8,15 +8,14 @@ void fun(int d, int k){
     int f = 0;
 
     for(int i=0; i<n; i++){
-        printf("%d", i);
+        a[i] = 16;
     }
     for(int j=0; j<n; j++){
-        printf("%d", j);
+       a[j] = 16;
     }
 
     if(x < 16){
         for(int i=1; i<6; i++){
-            printf("%d", i);
             a[i] = 0;
         }
         //printf("ciao");
@@ -24,7 +23,6 @@ void fun(int d, int k){
     if( x < 32){
         
         for(int j=0; j<5; j++){
-            printf("%d", j);
             //a[j] = 16;
             //f = a[j+1];
             a[j] = 44;

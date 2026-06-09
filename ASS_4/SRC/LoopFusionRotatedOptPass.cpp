@@ -208,11 +208,14 @@ namespace
         che nel contesto del Control Flow Graph consiste nel sapere quante volte viene percorso l'arco che dal Latch riporta all'Header.
     */
     bool verifySameTripCount(Loop* first, Loop* second, ScalarEvolution &SE){
-        auto *firstTP = SE.getBackedgeTakenCount(first);
-        auto *secondTP = SE.getBackedgeTakenCount(second);
-        if(isa<SCEVCouldNotCompute>(firstTP) || isa<SCEVCouldNotCompute>(secondTP))
+        const SCEV *firstTP = SE.getBackedgeTakenCount(first);
+        const SCEV *secondTP = SE.getBackedgeTakenCount(second);
+        errs() << "First trip count: " << *firstTP << "\n";
+        errs() << "Second trip count: " << *secondTP << "\n";
+        if (isa<SCEVCouldNotCompute>(firstTP) ||
+            isa<SCEVCouldNotCompute>(secondTP))
             return false;
-        return  firstTP == secondTP;
+        return  firstTP == secondTP || SE.isKnownPredicate(ICmpInst::ICMP_EQ, firstTP, secondTP);
     }
 
     SmallVector<Instruction *, 10> getLoadStore(Loop* LL, bool getLoad){
@@ -308,8 +311,6 @@ namespace
         if(!constant_delta)
             return;
         
-        
-        
         Instruction *newInduction = BinaryOperator::CreateAdd(
             firstInductionVariable, 
             constant_delta->getValue(), 
@@ -385,7 +386,6 @@ namespace
         // primo loop
         secondTerminatorBodyBranch->setSuccessor(0, firstLatch);
         
-        
         return true;
     }
 
@@ -416,18 +416,18 @@ namespace
     }
 
     /*
-        Funzione che si occupa di collegare il Latcg del secondo loop con il suo Header:
+        Funzione che si occupa di collegare l'Header del secondo loop con il suo Latch:
 
         Requisiti:
-        - Istruzione terminatrice del Latch 
-        - Blocco Header
+        - Istruzione terminatrice dell'header 
+        - Blocco Latch
 
-        Inoltre si cambia l'istruzione di salto condizionato da Latch a Header in un istruzione di salto incondizionato.
+        Inoltre si cambia l'istruzione di salto condizionato da Header al Latch in un istruzione di salto incondizionato.
         
         Nota: questa operazione viene svolta per fare in modo che LLVM capisca che il seconndo loop è vuoto e lo consideri come 
         Dead code
     */
-    bool secondLoopLatchToHeader(Loop *loop) {
+    bool secondLoopHeaderToLatch(Loop *loop) {
         BasicBlock *header = loop->getHeader();
         BasicBlock *latch = loop->getLoopLatch();
 
@@ -513,7 +513,7 @@ namespace
         if(!bypassSecondGuard(first, second, LI)) return false;
         if(!LatchExitConnect(first, second)) return false;
         if(!bodyConnect(first, second)) return false;
-        if(!secondLoopLatchToHeader(second)) return false;
+        if(!secondLoopHeaderToLatch(second)) return false;
         
         inductionVariableFusion(firstIV, secondIV, SE);
 
@@ -584,7 +584,7 @@ namespace
             }
 
 
-            return PreservedAnalyses::all();
+            return PreservedAnalyses::none();
         }
 
         // Without isRequired returning true, this pass will be skipped for functions

@@ -66,78 +66,7 @@ namespace
         return exitGuardedBlock;
     }
 
-    /**
-     * Funzione helper che preso un loop come argomento ritorna la branch instruction relativa alla guardia.
-     * (Se esiste)
-     *
-     * Nota: è stato necessario creare una funzione helper manuale e non utilizzando l'API di LLVM, poichè 
-     * LLVM riconosce le guardie solo ed unicamente nei loop ROTATED (dove la condizione di uscita è posta nel latch e 
-     * non nell'header).
-     * Non avendo trattato i ROTATED loops si è preferito creare una funzione manuale che ricava la guardia da qualsiasi loop 
-     * (anche non ruotato).
-     * 
-     * 
-     * Per poter ricavare la guardia si verifica se esiste un unico predecessore del preheader del loop e si cerca di ricavarne una branch instruction 
-     * condizionale.
-     * L'unico predecessore ci garantisce che tale predecessore (possibile guardia) domini il preheader.
-     * Se ci fossero più predecessori si riuscirebbe ad arrivare al preheader da blocchi diversi --> non è protetto direttamente
-     * da una guardia.
-     * 
-     * L'unico predecessore non deve essere a sua volta un header di un altro loop (nel caso di loop innestati c'è la possibilità
-     * che la branch instruction dell'header del loop venga erroneamente riconosciuta come guardia e questo va evitato).
-     * 
-     * Una volta ottenuto l'unico predecessore del preheader del loop (che non è a sua volta un header di un altro loop padre)
-     * si prende l'istruzione terminatore di tale predecessore e si verifica se è una conditional branch instruction.
-     * Se è un branch condizionale --> si è trovata la guarded branch instruction (guardia)
-     */
-    BranchInst *getManualLoopGuard(Loop *L, LoopInfo &LI) {
-        // estraggo il preheader del loop
-        BasicBlock *preheader = L->getLoopPreheader();
-        if (!preheader)
-            return nullptr;
-
-        // verifico se ha un unico predecessore (la guardia deve dominare il preheader)
-        BasicBlock *pred = preheader->getSinglePredecessor();
-        if (!pred)
-            return nullptr;
-
-        /**
-         * Il predecessore deve avere una conditional branch instruction come terminatore, ma questa caratteristica è
-         * presente anche negli header dei loop.
-         * Quindi se si sta analizzando nested loop, c'è la posssibilità che il predecessore del preheader del nested loop sia 
-         * l'header del loop padere, il quale verrebbe erroneamente riconosciuto come guardia.
-         * 
-         * ex:
-         * for(int i=0; i<N; i++){
-         *      for(int j=0; j<N; j++){
-         *          ...
-         *      }
-         * }
-         * 
-         * Il preheader del nested loop ha come unico predecessore l'header del padre, che ha come terminatore una
-         * branch instruction condizionale (potrebbe essere erroneamente scambiata come guardia).
-         * 
-         * Per evitare questa situazione si verifica che il predecessore non sia a sua volta l'header del loop padre.
-         */
-        if (Loop *PredLoop = LI.getLoopFor(pred)) {
-            if (PredLoop->getHeader() == pred)
-                return nullptr;
-        }
-
-        // ricavo la branch instruction dal terminatore del predecessore
-        auto *BI = dyn_cast<BranchInst>(pred->getTerminator());
-        if (!BI || !BI->isConditional())
-            return nullptr;
-
-
-        // verifico se tale conditional branch instruction porta effettivamente al preheader del loop (controllo ausiliare)
-        if (BI->getSuccessor(0) != preheader &&
-            BI->getSuccessor(1) != preheader)
-            return nullptr;
-
-        return BI;
-    }
-
+    
 
 
     /**
@@ -164,52 +93,57 @@ namespace
     bool verifyAdjacentLoops(Loop* first, Loop* second, LoopInfo &LI){
 
         // provo ad estrarre la guardia del primo loop
-        if(auto *firstGuarded = getManualLoopGuard(first, LI)){
+        if( first->isRotatedForm() && second->isRotatedForm() ){
+            if(auto *firstGuarded = first->getLoopGuardBranch()){
 
-            // il primo loop è guarded e ne ricavo la branch instruction con un dynamic cast
-            errs() << first->getName() << " loop is guarded\n";
-            if(BranchInst *firstGuardedBranch = dyn_cast<BranchInst>(firstGuarded)){
-                BasicBlock *exitFirstGuardedBlock = getExitFromGuard(firstGuardedBranch, first);
-                
-                // verifico se anche il secondo loop è guarded 
-                if(auto *secondLoopGuarded = getManualLoopGuard(second, LI)){
-                    if(BranchInst *secondLoopGuardedBranch = dyn_cast<BranchInst>(secondLoopGuarded)){
+                // il primo loop è guarded e ne ricavo la branch instruction con un dynamic cast
+                errs() << first->getName() << " loop is guarded\n";
+                if(BranchInst *firstGuardedBranch = dyn_cast<BranchInst>(firstGuarded)){
+                    BasicBlock *exitFirstGuardedBlock = getExitFromGuard(firstGuardedBranch, first);
+                    
+                    // verifico se anche il secondo loop è guarded 
+                    if(auto *secondLoopGuarded = second->getLoopGuardBranch()){
+                        if(BranchInst *secondLoopGuardedBranch = dyn_cast<BranchInst>(secondLoopGuarded)){
 
-                        // il secondo loop è guarded e ne ho ricavato la branch instruction con un dynamic cast
-                        errs() << second->getName() <<" loop is guarded" << "\n";
+                            // il secondo loop è guarded e ne ho ricavato la branch instruction con un dynamic cast
+                            errs() << second->getName() <<" loop is guarded" << "\n";
 
-                        // ricavo il blocco in cui è contenuta la guarded branch del secondo loop
-                        BasicBlock *secondLoopGuardedBlock = secondLoopGuardedBranch->getParent();
+                            // ricavo il blocco in cui è contenuta la guarded branch del secondo loop
+                            BasicBlock *secondLoopGuardedBlock = secondLoopGuardedBranch->getParent();
 
-                        // ricavo la prima sitruzione del blocco di guardia del secondo loop
-                        Instruction *firstSecondLoopGuardInstruction = &secondLoopGuardedBlock->front();
-                        
-                        // valore booleano che verifica se il blocco di guardia del secondo loop non contiene istruzioni aggiuntive
-                        // ovvero contiene solo un conditional branch o sia cun compare che un conditional branch
-                        bool compareAndBranch = ( isa<CmpInst>(firstSecondLoopGuardInstruction) && (firstSecondLoopGuardInstruction->getNextNode() == secondLoopGuardedBranch) );
-                        bool directBranch = ( secondLoopGuardedBranch == firstSecondLoopGuardInstruction );
+                            // ricavo la prima sitruzione del blocco di guardia del secondo loop
+                            Instruction *firstSecondLoopGuardInstruction = &secondLoopGuardedBlock->front();
+                            
+                            // valore booleano che verifica se il blocco di guardia del secondo loop non contiene istruzioni aggiuntive
+                            // ovvero contiene solo un conditional branch o sia cun compare che un conditional branch
+                            
+                            bool compareAndBranch = ( isa<CmpInst>(firstSecondLoopGuardInstruction) && (firstSecondLoopGuardInstruction->getNextNode() == secondLoopGuardedBranch) );
+                            bool directBranch = ( secondLoopGuardedBranch == firstSecondLoopGuardInstruction );
+                            
+                            if( !compareAndBranch && !directBranch)
+                                return false;
 
-                        if( !compareAndBranch && !directBranch)
-                            return false;
-
-                        if(secondLoopGuardedBlock != exitFirstGuardedBlock)
-                            return false;
-                        
-                        // la seconda guardia non ha istruzioni aggiuntive e le due guardie sono correttamente conllegate 
-                        // verifico se ci sono istruzioni ausiliari nel preheader e ritorno il risultato
-                        bool noPreheaderInst = areNoPreHeaderInstruction(second);
-                        
-                        // nel caso dei guarded l'uscita del primo loop non coincide esattamente con l'uscita della guardia
-                        // va quindi verificato che l'uscita del primo loop contenga solo una istruzione, che è quella che 
-                        // permette di fare un unconditional branch verso l'uscita della guard.
-                        // L'unconditional branch viene sempre messo da LLVM, se oltre ad essa è presente anche almeno un'altra
-                        // istruzione --> si ritorna false per non adiacenza
-                        BasicBlock *firstExitBB = first->getUniqueExitBlock();
-                        if(!firstExitBB) return false;
-                        bool noExitFromFirstLoopInst = firstExitBB->size() == 1;
-                        return noExitFromFirstLoopInst && noPreheaderInst;
+                            
+                            if(secondLoopGuardedBlock != exitFirstGuardedBlock)
+                                return false;
+                            
+                            // la seconda guardia non ha istruzioni aggiuntive e le due guardie sono correttamente conllegate 
+                            // verifico se ci sono istruzioni ausiliari nel preheader e ritorno il risultato
+                            bool noPreheaderInst = areNoPreHeaderInstruction(second);
+                            
+                            // nel caso dei guarded l'uscita del primo loop non coincide esattamente con l'uscita della guardia
+                            // va quindi verificato che l'uscita del primo loop contenga solo una istruzione, che è quella che 
+                            // permette di fare un unconditional branch verso l'uscita della guard.
+                            // L'unconditional branch viene sempre messo da LLVM, se oltre ad essa è presente anche almeno un'altra
+                            // istruzione --> si ritorna false per non adiacenza
+                            BasicBlock *firstExitBB = first->getUniqueExitBlock();
+                            if(!firstExitBB) return false;
+                            bool noExitFromFirstLoopInst = firstExitBB->size() == 1;
+                            return noExitFromFirstLoopInst && noPreheaderInst;
+                        }
                     }
                 }
+                return false;
             }
             return false;
         }else{
@@ -238,8 +172,8 @@ namespace
         Tramite DominatorTree e PostDominatorTree bisogna controllare che il primo loop domini il secondo e allo stesso tempo il secondo postdomini il primo
     */
     bool verifyControlFlowEquivalence(Loop* first, Loop* second, DominatorTree &DT, PostDominatorTree &PDT, ScalarEvolution &SE, LoopInfo &LI){
-        BranchInst* firstGuardBranch = getManualLoopGuard(first, LI);
-        BranchInst* secondGuardBranch = getManualLoopGuard(second, LI);
+        BranchInst* firstGuardBranch = first->getLoopGuardBranch();
+        BranchInst* secondGuardBranch = second->getLoopGuardBranch();
         bool guarded = (firstGuardBranch && secondGuardBranch);
 
         if(guarded){
@@ -302,15 +236,17 @@ namespace
     */
     bool verifySameTripCount(Loop* first, Loop* second, ScalarEvolution &SE){
         // ottengo i trip count dei due loop
-        auto *firstTP = SE.getBackedgeTakenCount(first);
-        auto *secondTP = SE.getBackedgeTakenCount(second);
+        const SCEV *firstTP = SE.getBackedgeTakenCount(first);
+        const SCEV *secondTP = SE.getBackedgeTakenCount(second);
 
+        errs() << "First trip count: " << *firstTP << "\n";
+        errs() << "Second trip count: " << *secondTP << "\n";
         // se non sono calcolabili ritorno false
         if(isa<SCEVCouldNotCompute>(firstTP) || isa<SCEVCouldNotCompute>(secondTP))
             return false;
             
         // altrimenti verifico se sono uguali
-        return  firstTP == secondTP;
+        return  (firstTP == secondTP || SE.isKnownPredicate(ICmpInst::ICMP_EQ, firstTP, secondTP));
     }
 
     // Funzone helper che viene utilizzata per ricavare le operazioni di STORE (ed eventualmente anche LOAD) dato un loop preso come argomento
@@ -394,28 +330,30 @@ namespace
      * l'API di LLVM getInductionVariable funziona solo per i loop rotated.
      * In alternativa ritorna nullptr.
      * 
-     * Per ottenere la Induction variable si verifica che nell'header del loop ci sia un phi node di cui si riesca a calcolare
-     * il SCEVAddRecExpr, ovvero un oggetto SCEV che definisce il range di valori della variabile che il for utilizza come contatore.
-     * espresso come: {base, +/-, step}
+     * Prendo il phi node corrispondente alla condizione di ripetizione del loop
      */
     PHINode* getLoopInductionVariable(Loop *loop, ScalarEvolution &SE) {
         BasicBlock *header = loop->getHeader();
+        auto *BI = dyn_cast<BranchInst>(header->getTerminator());
+        if (!BI || !BI->isConditional())
+            return nullptr;
 
-        // scorro le istruzioni dell'header
-        for (auto &instr : *header) {
-            // verifico se l'istruzione è un phi node
-            if (auto *phiInstr = dyn_cast<PHINode>(&instr)) {
-                const SCEV *scev = SE.getSCEV(phiInstr);
-                
-                // ne calcolo, se possibile il range di valori assumibili
-                if (auto *addRec = dyn_cast<SCEVAddRecExpr>(scev)) {
-                    // verifico se tale range di valori è relativo al loop preso in esame
-                    if (addRec->getLoop() == loop) {
-                        return phiInstr; 
-                    }
+        auto *cmp = dyn_cast<ICmpInst>(BI->getCondition());
+        if (!cmp)
+            return nullptr;
+
+        for (Value *Op : cmp->operands()) {
+            if (auto *PHI = dyn_cast<PHINode>(Op)) {
+                if (PHI->getParent() == header){
+                    
+                    const SCEV* IVRange = SE.getSCEV(PHI);
+                    if( auto *range = dyn_cast<SCEVAddRecExpr>(IVRange))
+                        if(range->getLoop() == loop)
+                            return PHI;
                 }
             }
         }
+
         return nullptr;
     }
 
@@ -486,6 +424,9 @@ namespace
         Funzione helper che dato un loop ne ricava il suo primo blocco Body
     */
     BasicBlock *getBodyStart(Loop* loop){
+        if(loop->isRotatedForm())
+            return loop->getHeader();
+
         // Il primo blocco Body del loop è il blocco successore all'Header
         BasicBlock *header = loop->getHeader();
         BranchInst *headerBranch = dyn_cast<BranchInst>(header->getTerminator());
@@ -532,6 +473,7 @@ namespace
     bool bodyConnect(Loop *first, Loop *second){
         // si ricava il branch del body che porta al latch del primo loop
         Instruction *firstBodyTerminatorInstruction = getTerminatorBodyInstruction(first);
+        
         BranchInst *firstTerminatorBodyBranch = dyn_cast<BranchInst>(firstBodyTerminatorInstruction);
         if(!firstTerminatorBodyBranch)
             return false;
@@ -557,6 +499,25 @@ namespace
         return true;
     }
 
+    
+    bool loopRedirectToExit(Loop* second, BasicBlock* source, BasicBlock* internalPoint){
+        if(!source || !internalPoint)
+            return false;
+
+        BranchInst* terminatorBranch = dyn_cast<BranchInst>(source->getTerminator());
+        if(!terminatorBranch || !terminatorBranch->isConditional())
+            return false;
+
+        unsigned exitBranchIndex = terminatorBranch->getSuccessor(0) == internalPoint? 1:0;
+        SmallVector<BasicBlock*, 10> secondExits;
+        second->getExitBlocks(secondExits);
+
+        if(secondExits.empty())
+            return false;
+
+        terminatorBranch->setSuccessor(exitBranchIndex, secondExits[0]);
+        return true;
+    }
 
     /**
      * Funzione che si occupa di collegare l'uscita dell'header del primo loop con l'exit block del secondo loop.
@@ -567,29 +528,12 @@ namespace
      *  - exit block del secondo loop
      */
     bool headerExitConnect(Loop *first, Loop *second){
-        
-        // si ricava il primo blocco del body del primo loop
-        BasicBlock *firstBody = getBodyStart(first);
-        if(!firstBody)
-            return false;
-        
-        // si ricava l'header del primo loop e la conditional branch instruction alla fine di esso
-        BasicBlock *firstHeader = first->getHeader();
-        BranchInst *firstHeaderBranch = dyn_cast<BranchInst>(firstHeader->getTerminator());
+        return loopRedirectToExit(second, first->getHeader(), getBodyStart(first));
+    }
 
-        // si verifica qual'è il successore che NON PORTA al body del primo loop.
-        // tale indice indica quale successore è il branch verso l'exit del loop che deve essere sostituito con l'exit del secondo loop
-        unsigned int firstHeaderExitSuccessorIndex = firstHeaderBranch->getSuccessor(0) == firstBody ? 1 : 0;
-        SmallVector<BasicBlock *, 10> secondLoopExits;
-        
-        // c'è solo un exit block perchè se ce ne fossere altri si formerebbe un problema di dominanza e post-dominanza
-        // e il trip count non si riuscirebbe a calcolare
-        second->getExitBlocks(secondLoopExits);
 
-        // il successore non body dell'header del primo loop diventa il primo (ed unico) successor del secondo loop.
-        firstHeaderBranch->setSuccessor(firstHeaderExitSuccessorIndex, secondLoopExits[0] );
-
-        return true;
+    bool LatchExitConnect(Loop* first, Loop* second){
+        return loopRedirectToExit(second, first->getLoopLatch(), first->getHeader());
     }
 
     /*
@@ -615,10 +559,11 @@ namespace
         if (!headerBranch)
             return false;
 
-        // Si cancella l'istruzione di salto condizionato al Latch e se ne crea una di salto incondizionato
-        headerBranch->eraseFromParent();
-        // si collega direttamente l'header con il suo latch
-        BranchInst::Create(latch, header);
+        unsigned bodyStartIndex = 0;
+
+        if(!loop->isRotatedForm())
+            bodyStartIndex = headerBranch->getSuccessor(0) == getBodyStart(loop)? 0:1;
+        headerBranch->setSuccessor(bodyStartIndex, latch);
 
         return true;
     }
@@ -632,8 +577,8 @@ namespace
      * Questa funzione viene eseguita solo per i loop guarded, se un loop non è guarded viene fatto ritornare direttamente true
      */
     bool bypassSecondGuard(Loop* first, Loop* second, LoopInfo &LI){
-        BranchInst *firstGuardedBranch = getManualLoopGuard(first, LI);
-        BranchInst *secondGuardedBranch = getManualLoopGuard(second, LI);
+        BranchInst *firstGuardedBranch = first->getLoopGuardBranch();
+        BranchInst *secondGuardedBranch = second->getLoopGuardBranch();
 
         if(!firstGuardedBranch || !secondGuardedBranch)
             return true;
@@ -657,6 +602,55 @@ namespace
     */
     bool isForStructure(Loop* loop){
         return loop->getLoopLatch()->size() == 2;
+    }
+
+    bool fuseRotatedLoops(Loop* first, Loop* second, ScalarEvolution &SE, LoopInfo &LI){
+        // posso usare direttamente le API di LLVM essendo loop rotated
+        PHINode* firstIV = first->getInductionVariable(SE);
+        PHINode* secondIV = second->getInductionVariable(SE);
+        
+        // l'ordine rispetto ai non rotated loops cambia, perchè quando cerco di modificare le guardie se ho già spostato i 
+        // body il controllo su getGuardedBranch fallisce
+        if(!bypassSecondGuard(first, second, LI)) return false;
+        
+        if(!LatchExitConnect(first, second)) return false;
+        
+        if(!bodyConnect(first, second)) return false;
+        
+        if(!secondLoopHeaderToLatch(second)) return false;
+        
+        inductionVariableFusion(firstIV, secondIV, SE);
+
+        return true;
+    }
+
+    bool fuseNonRotatedLoops(Loop* first, Loop* second, ScalarEvolution &SE, LoopInfo &LI){
+        // Devono essere entrambi due cicli For
+        if( !isForStructure(first) || !isForStructure(second)){
+            errs() << "One loop is in while-form. fuse refused\n";
+            return false;
+        }
+
+        // Si ottengono le Induction Variable di entrambi i loop prima di effettuare la Fusion, questo perchè in questo modo evitiamo che i puntatori delle IV si invalidino a seguito proprio di alcune operazioni della Fusion
+        PHINode* firstIV = getLoopInductionVariable(first, SE);
+        PHINode* secondIV = getLoopInductionVariable(second, SE);
+        
+        // Si inserisce il Body del secondo loop nel Body del primo, se per un qualche motivo questa operazione fallisce si abortisce la fusione di questi due cicli
+        if(!bodyConnect(first, second)) return false;
+        
+        // Si collega l'Exit Block del secondo loop all'Header del primo, se per un qualche motivo questa operazione fallisce si abortisce la fusione di questi due cicli
+        if(!headerExitConnect(first, second)) return false;
+
+        // Si collega l'Header del secondo loop con il suo Latch, se per un qualche motivo questa operazione fallisce si abortisce la fusione di questi due cicli
+        if(!secondLoopHeaderToLatch(second)) return false;
+        
+        // Si collega l'exit della prima guardia con l'exit della seconda, se per un qualche motivo questa operazione fallisce si abortisce la fusione di questi due cicli
+        if(!bypassSecondGuard(first, second, LI)) return false;
+
+        // Si inserisce l'Induction Variable del secondo loop subito dopo l'induction variable del primo loop
+        inductionVariableFusion(firstIV, secondIV, SE);
+
+        return true;
     }
 
     /*
@@ -700,30 +694,16 @@ namespace
         }
         errs() << first->getName() << " and " << second->getName() << " can be fused \n";
 
-        // Devono essere entrambi due cicli For
-        if( !isForStructure(first) || !isForStructure(second)){
-            errs() << "One loop is in while-form. fuse refused\n";
+        bool correctFusion = false;
+        if(first->isRotatedForm() && second->isRotatedForm())
+            correctFusion = fuseRotatedLoops(first, second, SE, LI);
+        else
+            correctFusion = fuseNonRotatedLoops(first, second, SE, LI);
+
+        if(!correctFusion){
+            errs() << "Fusion error !\n";
             return false;
         }
-
-        // Si ottengono le Induction Variable di entrambi i loop prima di effettuare la Fusion, questo perchè in questo modo evitiamo che i puntatori delle IV si invalidino a seguito proprio di alcune operazioni della Fusion
-        PHINode* firstIV = getLoopInductionVariable(first, SE);
-        PHINode* secondIV = getLoopInductionVariable(second, SE);
-        
-        // Si inserisce il Body del secondo loop nel Body del primo, se per un qualche motivo questa operazione fallisce si abortisce la fusione di questi due cicli
-        if(!bodyConnect(first, second)) return false;
-        
-        // Si collega l'Exit Block del secondo loop all'Header del primo, se per un qualche motivo questa operazione fallisce si abortisce la fusione di questi due cicli
-        if(!headerExitConnect(first, second)) return false;
-
-        // Si collega l'Header del secondo loop con il suo Latch, se per un qualche motivo questa operazione fallisce si abortisce la fusione di questi due cicli
-        if(!secondLoopHeaderToLatch(second)) return false;
-        
-        // Si collega l'exit della prima guardia con l'exit della seconda, se per un qualche motivo questa operazione fallisce si abortisce la fusione di questi due cicli
-        if(!bypassSecondGuard(first, second, LI)) return false;
-
-        // Si inserisce l'Induction Variable del secondo loop subito dopo l'induction variable del primo loop
-        inductionVariableFusion(firstIV, secondIV, SE);
 
         // Si ripulisce il codice del programma dal secondo loop ormai vuoto
         EliminateUnreachableBlocks(F);

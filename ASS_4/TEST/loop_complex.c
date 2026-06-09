@@ -2,7 +2,6 @@
 
 void fun(int a, int b){
     int c[10];
-    int d[10];
 
     int x = 16;
     int y = 44;
@@ -12,24 +11,23 @@ void fun(int a, int b){
 
         //cond 1
         for(int j = 0; j<5; j ++){
-            printf("%d", j);
+            c[j] = 16;
         }
 
         //cond 5
         for(int j = 0; j<5; j ++){
-            printf("%d", j);
+            c[j] = 16;
         }
-
 
         // cond 13
         for(int j = 5; j<10; j ++){
-            printf("%d", j);
+            c[j-5] = 16;
         }
     }
 
     // cond 23
     for(int z = 0; z<4; z ++){
-        printf("%d", z);
+        c[z] = 16;
     }
 
     // cond 31
@@ -38,16 +36,16 @@ void fun(int a, int b){
         //cond 34
         for(int k = 0; k<4; k ++){
             if(x<y){
-                // cond 38
-                for(int m = 0; m<4; m ++){
-                    printf("%d", m);
-                }
+                int n =5;
+                do{
+                    n++;
+                }while(n<10);
             }
             if(x<y){
-                // cond 48
-                for(int m = 0; m<4; m ++){
-                    printf("%d", m);
-                }
+                int n=5;
+                do{
+                    n++;
+                }while(n<10);
             }
         }
     }
