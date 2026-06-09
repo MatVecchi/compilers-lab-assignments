@@ -584,6 +584,7 @@ namespace
 
     /*
         Funzione che si occupa di collegare l'Header del secondo loop con il suo Latch:
+        ( richiamata solo per i non ruotati per rispettare le slide del corso)
 
         Requisiti:
         - Istruzione terminatrice dell'header 
@@ -602,11 +603,7 @@ namespace
         if (!headerBranch)
             return false;
 
-        unsigned bodyStartIndex = 0;
-
-        // modifico la branch instruction terminatrice dell'header per fare in modo che punti verso il latch
-        if(!loop->isRotatedForm())
-            bodyStartIndex = headerBranch->getSuccessor(0) == getBodyStart(loop)? 0:1;
+        unsigned bodyStartIndex = bodyStartIndex = headerBranch->getSuccessor(0) == getBodyStart(loop)? 0:1;;    
         headerBranch->setSuccessor(bodyStartIndex, latch);
 
         return true;
@@ -667,8 +664,6 @@ namespace
         if(!LatchExitConnect(first, second)) return false;
         
         if(!bodyConnect(first, second)) return false;
-        
-        if(!secondLoopHeaderToLatch(second)) return false;
         
         inductionVariableFusion(firstIV, secondIV, SE);
 

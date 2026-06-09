@@ -415,35 +415,6 @@ namespace
         return true;
     }
 
-    /*
-        Funzione che si occupa di collegare l'Header del secondo loop con il suo Latch:
-
-        Requisiti:
-        - Istruzione terminatrice dell'header 
-        - Blocco Latch
-
-        Inoltre si cambia l'istruzione di salto condizionato da Header al Latch in un istruzione di salto incondizionato.
-        
-        Nota: questa operazione viene svolta per fare in modo che LLVM capisca che il seconndo loop è vuoto e lo consideri come 
-        Dead code
-    */
-    bool secondLoopHeaderToLatch(Loop *loop) {
-        BasicBlock *header = loop->getHeader();
-        BasicBlock *latch = loop->getLoopLatch();
-
-        // estraggo il branch del latch 
-        BranchInst *LatchBranch =
-            dyn_cast_or_null<BranchInst>(latch->getTerminator());
-
-        if (!LatchBranch)
-            return false;
-
-        // collego direttamente il latch con l'header con un unconditioned branch
-        LatchBranch->eraseFromParent();
-        BranchInst::Create(header, latch);
-
-        return true;
-    }
 
     /**
      * Funzione che collega l'exit della prima guardia con l'exit della seconda guardia
@@ -513,7 +484,6 @@ namespace
         if(!bypassSecondGuard(first, second, LI)) return false;
         if(!LatchExitConnect(first, second)) return false;
         if(!bodyConnect(first, second)) return false;
-        if(!secondLoopHeaderToLatch(second)) return false;
         
         inductionVariableFusion(firstIV, secondIV, SE);
 
