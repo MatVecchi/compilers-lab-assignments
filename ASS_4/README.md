@@ -45,7 +45,6 @@ Per verificarne l'adiacenza, abbiamo implementato i seguenti metodi:
 * `verifyAdjacentLoops`: verifica l'adiacenza tra due loop consecutivi. Per i loop non guarded, l'exit block del primo deve coincidere con il preheader del secondo; 
 * per i loop guarded, l'uscita della prima guardia deve portare direttamente al blocco della seconda guardia.
 * `areNoPreHeaderInstruction`: controlla che nel preheader del secondo loop non siano presenti istruzioni aggiuntive oltre al branch incondizionato verso l'header.
-* `getManualLoopGuard`: analizza manualmente il CFG per estrarre la branch instruction condizionale della guardia (è stato necessario implementare questa funzione perché getLoopGuardedBranch() di LLVM non esegue i dovuti controlli per i loop non ruotati). 
 * `getExitFromGuard`: identifica l'effettivo blocco di uscita associato alla guardia di un loop protetto.
 
 ---
