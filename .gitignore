@@ -1,3 +1,4 @@
 .vscode
 **/BUILD/
 *.ll
+*.fun.dot

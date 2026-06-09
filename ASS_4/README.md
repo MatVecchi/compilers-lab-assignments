@@ -10,6 +10,33 @@ Prima di eseguire il passo è necessario chiamare il passo LLVM `loop-rotate` ch
 
 ---
 
+## Come eseguire il passo
+Per generare i file che sfruttano l'ottimizzazione di questo passo bisogna eseguire i seguenti comandi per i due esempi trattati `loop_fusion` e `loop_complex`:
+
+### Loop fusion
+```bash 
+clang -O0 -Xclang -disable-O0-optnone -emit-llvm -fno-discard-value-names -S -c loop_fusion.c -o loop_fusion.O0.ll && opt -passes=mem2reg -S loop_fusion.O0.ll -o loop_fusion.O0.ll && opt -S --load-pass-plugin ../BUILD/libLoopFusionOptPass.so -passes=loop-fusion-opt loop_fusion.O0.ll -o loop_fusion.OPT.ll && opt -passes=dot-cfg -cfg-dot-filename-prefix=loop_fusion loop_fusion.OPT.ll
+```
+
+### Loop fusion complesso
+```bash 
+clang -O0 -Xclang -disable-O0-optnone -emit-llvm -fno-discard-value-names -S -c loop_complex.c -o loop_complex.O0.ll && opt -passes=mem2reg -S loop_complex.O0.ll -o loop_complex.O0.ll && opt -S --load-pass-plugin ../BUILD/libLoopFusionOptPass.so -passes=loop-fusion-opt loop_complex.O0.ll -o loop_complex.OPT.ll && opt -passes=dot-cfg -cfg-dot-filename-prefix=loop_complex loop_complex.OPT.ll
+```
+
+Per la variante del passo di ottimizzazione che sfrutta solamente i loop ruotati i comandi sono i seguenti:
+
+### Loop fusion
+```bash 
+clang -O0 -Xclang -disable-O0-optnone -emit-llvm -fno-discard-value-names -S -c loop_fusion.c -o loop_fusion_rotated.O0.ll && opt -passes=mem2reg -S loop_fusion_rotated.O0.ll -o loop_fusion_rotated.O0.ll && opt -passes=loop-rotate -S loop_complex_rotate.O0.ll -o loop_complex_rotated.O0.ll && opt -S --load-pass-plugin ../BUILD/libLoopFusionRotatedOptPass.so -passes=loop-fusion-r-opt loop_fusion_rotated.O0.ll -o loop_fusion_rotated.OPT.ll && opt -passes=dot-cfg -cfg-dot-filename-prefix=loop_fusion_rotated loop_fusion_rotated.OPT.ll
+```
+
+### Loop fusion complesso
+```bash 
+clang -O0 -Xclang -disable-O0-optnone -emit-llvm -fno-discard-value-names -S -c loop_complex.c -o loop_complex_rotated.O0.ll && opt -passes=mem2reg -S loop_complex_rotated.O0.ll -o loop_complex_rotated.O0.ll && opt -passes=loop-rotate -S loop_complex_rotated.O0.ll -o loop_complex_rotated.O0.ll && opt -S --load-pass-plugin ../BUILD/libLoopFusionRotatedOptPass.so -passes=loop-fusion-r-opt loop_complex_rotated.O0.ll -o loop_complex_rotated.OPT.ll && opt -passes=dot-cfg -cfg-dot-filename-prefix=loop_complex_rotated loop_complex_rotated.OPT.ll
+```
+
+questo genera anche un file `.dot` per ogni caso di ottimizzazione che permette di visualizzare il CFG in maniera grafica.
+
 ## 1. Verifica delle Condizioni di Adiacenza 
 
 La Loop Fusion richiede che i due loop candidati siano adiacenti all'interno del flusso di esecuzione, ovvero che non vi siano operazioni rilevanti eseguite tra la fine del primo e l'inizio del secondo.
