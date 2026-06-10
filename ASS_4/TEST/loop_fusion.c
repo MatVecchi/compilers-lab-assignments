@@ -6,6 +6,8 @@ void fun(int d, int k){
     int n = 16;
     int x= 5;
     int f = 0;
+    int d_plus = d+1;
+    int k_plus = k+1;
 
     for(int i=0; i<n; i++){
         a[i] = 16;
@@ -14,14 +16,14 @@ void fun(int d, int k){
        a[j] = 16;
     }
 
-    if(x < 16){
+    if(d < k){
         int i = 1;
         do{
             a[i] = 0;
             i ++;
         }while(i < 6);
     }
-    if( x < 32){
+    if( k>d ){
         int i = 0;
         do{
             a[i] = 44;

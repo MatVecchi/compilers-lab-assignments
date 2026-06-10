@@ -166,7 +166,7 @@ namespace
 
         CASO LOOP GUARDED
         Tramite DominatorTree e PostDominatorTree bisogna controllare che la prima guardia domini la seconda e allo stesso tempo la seconda postdomini la prima.
-        Inoltre bisogna verificare che la condizione della prima guardia implichi la condizione della seconda.
+        Inoltre bisogna verificare che la condizione della prima guardia implichi la condizione della seconda e viceversa, ovvero le due condizioni si devono implicare.
         
         CASO LOOP NON GUARDED
         Tramite DominatorTree e PostDominatorTree bisogna controllare che il primo loop domini il secondo e allo stesso tempo il secondo postdomini il primo
@@ -198,6 +198,10 @@ namespace
             if(!firstCompareInstruction || !secondCompareInstruction)
                 return false;
 
+            // verifico sintatticamente se le condizioni siano uguali
+            if(firstCompareInstruction == secondCompareInstruction || firstCompareInstruction->isIdenticalTo(secondCompareInstruction))
+                return true;
+
             // estraggo il predicato e il RHV e il LHV della seconda condizione e ne ottengo lo SCEV
             auto secondPred = secondCompareInstruction->getPredicate();
             Value *secondLeftHandSide = secondCompareInstruction->getOperand(0); 
@@ -207,6 +211,22 @@ namespace
             const SCEV *SCEVsecondRightHandSide = SE.getSCEV(secondRightHandSide);
 
 
+            auto firstPred = firstCompareInstruction->getPredicate();
+            Value *firtsLeftHandSide = firstCompareInstruction->getOperand(0); 
+            Value *firstRightHandSide = firstCompareInstruction->getOperand(1);
+
+            const SCEV *SCEVfirstLeftHandSide = SE.getSCEV(firtsLeftHandSide);
+            const SCEV *SCEVfirstRightHandSide = SE.getSCEV(firstRightHandSide);
+
+            // con gli scalar evolution precedentemente calcolati verifico se la seconda condizione è scritta in modo opposto alla prima
+            // ex: x<n e n>x
+            if( firstPred == ICmpInst::getSwappedPredicate(secondPred) &&
+                firtsLeftHandSide == secondRightHandSide &&
+                firstRightHandSide == secondLeftHandSide ){
+                    return true;
+            }
+
+
             /**
              * Il contesto è una istruzione che si prende in considerazione per la verifica della implicazione della 
              * prima guardia sulla seconda.
@@ -214,10 +234,14 @@ namespace
              * La funzione isKnownPredicateAt prende in input il contesto e un predicato e verifica se tale predicato è
              * verificato nel contesto passato come argomento.
              */
-            Instruction *CtxI = firstGuardBranch;
+            Instruction *firstCtxI = firstGuardBranch;
+            Instruction *secondCtxI = secondGuardBranch;
             
+            // verifico la doppia implicazione fra prima e seconda condizione con la relativa funzione
+
             //errs() << SE.isKnownPredicateAt(secondPred, SCEVsecondLeftHandSide, SCEVsecondRightHandSide, CtxI) <<"\n";
-            if (!SE.isKnownPredicateAt(secondPred, SCEVsecondLeftHandSide, SCEVsecondRightHandSide, CtxI))
+            if (!SE.isKnownPredicateAt(secondPred, SCEVsecondLeftHandSide, SCEVsecondRightHandSide, firstCtxI) || 
+                !SE.isKnownPredicateAt(firstPred, SCEVfirstLeftHandSide, SCEVfirstRightHandSide, secondCtxI))
                 return false;
             return true;
              

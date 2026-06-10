@@ -152,7 +152,7 @@ namespace
 
         CASO LOOP GUARDED
         Tramite DominatorTree e PostDominatorTree bisogna controllare che la prima guardia domini la seconda e allo stesso tempo la seconda postdomini la prima.
-        Inoltre bisogna verificare che la condizione della prima guardia implichi la condizione della seconda.
+        Inoltre bisogna verificare che la condizione della prima guardia implichi la condizione della seconda e viceversa, ovvero le due condizioni si devono implicare.
         
         CASO LOOP NON GUARDED
         Tramite DominatorTree e PostDominatorTree bisogna controllare che il primo loop domini il secondo e allo stesso tempo il secondo postdomini il primo
@@ -163,15 +163,18 @@ namespace
         bool guarded = (firstGuardBranch && secondGuardBranch);
 
         if(guarded){
-            //errs() << "are guarded\n";
+            
             // verifico che la veridicità della prima istruzione implica la veridicità della seconda
             // ex: se la prima è n>10 e la seconda n>5 --> allora è true.
             BasicBlock *firstGuard = firstGuardBranch->getParent();
             BasicBlock *secondGuard = secondGuardBranch->getParent();
 
+            // verifico le proprietà di dominanza e post-dominanza
+            // la prima guardia deve dominare la seconda e la seconda deve post-dominare la prima
             if(!DT.dominates(firstGuard, secondGuard) ||  !PDT.dominates(secondGuard, firstGuard) )
                 return false;
-                
+            
+            // verifico che la prima guardia implichi la seconda, per prima cosa ricavando le due condizioni
             Value* firstGuardedBranchCondition = firstGuardBranch->getCondition();
             Value* secondGuardedBranchCondition = secondGuardBranch->getCondition(); 
 
@@ -181,7 +184,11 @@ namespace
             if(!firstCompareInstruction || !secondCompareInstruction)
                 return false;
 
-            
+            // verifico sintatticamente se le condizioni siano uguali
+            if(firstCompareInstruction == secondCompareInstruction || firstCompareInstruction->isIdenticalTo(secondCompareInstruction))
+                return true;
+
+            // estraggo il predicato e il RHV e il LHV della seconda condizione e ne ottengo lo SCEV
             auto secondPred = secondCompareInstruction->getPredicate();
             Value *secondLeftHandSide = secondCompareInstruction->getOperand(0); 
             Value *secondRightHandSide = secondCompareInstruction->getOperand(1);
@@ -190,14 +197,43 @@ namespace
             const SCEV *SCEVsecondRightHandSide = SE.getSCEV(secondRightHandSide);
 
 
-            Instruction *CtxI = firstGuardBranch;
+            auto firstPred = firstCompareInstruction->getPredicate();
+            Value *firtsLeftHandSide = firstCompareInstruction->getOperand(0); 
+            Value *firstRightHandSide = firstCompareInstruction->getOperand(1);
+
+            const SCEV *SCEVfirstLeftHandSide = SE.getSCEV(firtsLeftHandSide);
+            const SCEV *SCEVfirstRightHandSide = SE.getSCEV(firstRightHandSide);
+
+            // con gli scalar evolution precedentemente calcolati verifico se la seconda condizione è scritta in modo opposto alla prima
+            // ex: x<n e n>x
+            if( firstPred == ICmpInst::getSwappedPredicate(secondPred) &&
+                firtsLeftHandSide == secondRightHandSide &&
+                firstRightHandSide == secondLeftHandSide ){
+                    return true;
+            }
+
+
+            /**
+             * Il contesto è una istruzione che si prende in considerazione per la verifica della implicazione della 
+             * prima guardia sulla seconda.
+             * Il contesto corrisponde allo scope in cui si vuole verificare la veridicità della seconda condizione rispetto alla prima.
+             * La funzione isKnownPredicateAt prende in input il contesto e un predicato e verifica se tale predicato è
+             * verificato nel contesto passato come argomento.
+             */
+            Instruction *firstCtxI = firstGuardBranch;
+            Instruction *secondCtxI = secondGuardBranch;
             
+            // verifico la doppia implicazione fra prima e seconda condizione con la relativa funzione
+
             //errs() << SE.isKnownPredicateAt(secondPred, SCEVsecondLeftHandSide, SCEVsecondRightHandSide, CtxI) <<"\n";
-            if (!SE.isKnownPredicateAt(secondPred, SCEVsecondLeftHandSide, SCEVsecondRightHandSide, CtxI))
+            if (!SE.isKnownPredicateAt(secondPred, SCEVsecondLeftHandSide, SCEVsecondRightHandSide, firstCtxI) || 
+                !SE.isKnownPredicateAt(firstPred, SCEVfirstLeftHandSide, SCEVfirstRightHandSide, secondCtxI))
                 return false;
             return true;
              
         }
+        
+        // verifico che il primo loop domini il secondo e che il secondo loop post-domini il primo
         return DT.dominates(first->getHeader(), second->getHeader()) && PDT.dominates(second->getHeader(), first->getHeader());
     }
 
