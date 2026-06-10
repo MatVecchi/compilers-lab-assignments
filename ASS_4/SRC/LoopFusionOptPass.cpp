@@ -527,6 +527,9 @@ namespace
         // latch del primo loop
         Instruction *secondBodyTerminatorInstruction = getTerminatorBodyInstruction(second);
         BranchInst *secondTerminatorBodyBranch = dyn_cast<BranchInst>(secondBodyTerminatorInstruction);
+        if(!secondTerminatorBodyBranch)
+            return false;
+
         BasicBlock *firstLatch = first->getLoopLatch();
 
 
