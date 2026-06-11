@@ -106,8 +106,7 @@ namespace
        Questo scenario si verifica quando il Magic Number ideale ha un numero di bit maggiore rispetto a quello messo a disposizione.
 
 
-       - POST-SHIFT: è lo scenario che si verifica nel momento in cui lo shift a destra di k (numero di bit - 32 nel nostro caso) non è sufficiente.
-       è quindi necessario dover utilizzare un ulteriore shift right, di cui il numero di bit è espressamente definito dentro l'oggetto Magic.
+       - POST-SHIFT: è lo shift a destra di k 
 
     */
     void magicDiv(BinaryOperator *BinOp, ConstantInt *constantValue, Value *registerOperand)
@@ -153,12 +152,13 @@ namespace
         Instruction *MulWide = BinaryOperator::CreateMul(XWide, MagicWide);
         MulWide->insertBefore(BinOp);
 
-        // Shift a sinistra di k bit (x * M ) >> k
+        // ottengo la parte alta del prodotto a 32 bit (shifto a destra di 32 bit il numero totale)
         Value *ShiftByBitWidthC = ConstantInt::get(WideTy, BitWidth);
         Instruction *HighPart = BinaryOperator::CreateLShr(MulWide, ShiftByBitWidthC);
         HighPart->insertBefore(BinOp);
 
         // riporto il valore calcolato del quoziente a 32 bit, in linea con il resto del programma
+        // la parte troncata sarà composta da soli 0 a seguito delle operazioni precedenti
         Instruction *Res = new TruncInst(HighPart, registerType);
         Res->insertBefore(BinOp);
 
