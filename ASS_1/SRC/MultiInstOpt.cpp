@@ -94,6 +94,7 @@ namespace
         return val1->getSExtValue() == val2->getSExtValue(); // Si suppone che sia già stata applicata la Algebric Semplification
     }
 
+    // versione della funzione con operandi non costanti
     bool isOpposite(Instruction *op1, Instruction *op2, Value *val1, Value *val2)
     {
         if (!(op1->getOpcode() == Instruction::Mul && op2->getOpcode() == Instruction::SDiv ||
