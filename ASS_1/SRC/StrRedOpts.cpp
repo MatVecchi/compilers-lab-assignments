@@ -75,26 +75,23 @@ namespace
     /*
         Funzione che, presa in input una operazione di divisione, verifica se l'applicazione dell'algoritmo di Magic 
         Number division porta un profitto in termini di CPI.
-
-        Per poter eseguire questo calcolo viene utilizzata l'analisi TargetTransformInfo che permette di poter fonrire 
-        informazioni riguardo al throughput e al costo in termini di CPI di ciascuna istruzione presente all'interno del 
-        CFG basandosi sui tipi di dato che vengono usati dai suoi operandi.
-
-        Viene infatti instanziato l'oggetto: TCK_RecipThroughput che rappresenta il reciproco del throughtput.
-        Il throughtput è calcolato come il numero di istruzioni che vengono eseguite per unità di tempo.
-        Calcolare il reciproco del throughtput significa poter ottenere l'unità di tempo necessaria per poter eseguire
-        una singola istruzione --> dalla quale si può effettivamente calcolare il costo di una singola istruzione
-
-        Applicando infatti l'istruzione get<tipo istruzione>Cost si riesce ad ottenere un oggetto di tipo
-        InstructionCost che rappresenta il costo in termini di Cycles per instruction della istruzione analizzata.
-
-
-        per poter verificare se la magic division porta profit in termini di CPI, si verifica se il costo in termini della
-        Divisione è maggiore o minore della somma dei costi di tutte le istruzioni che vengono eseguite dall'algoritmo di magic division.
-        Includendo anche le situazioni di pre-shift, in-add e post-shift.
         
+        All'inizio della funzione sono definiti dei costi in termini di CPI relativi alle operazioni di base.
+        Nota: i costi così definiti sono delle pure assunzioni empiriche.
+
+        Per poter verificare se la magic division porta profitto, si verifica se la somma dei costi di tutte le oeprazioni che
+        l'algoritmo di magic division dovrebbe svolgere è minore rispetto ai CPI totali della divisione.
     */
-    bool divProfitability(ConstantInt *constantValue, Type *type, TargetTransformInfo &TTI){
+    bool divProfitability(ConstantInt *constantValue, Type *type){
+        // Assumiamo dei costi (in termini di CPI) delle operazioni di base.
+        int SHIFT_COST = 1;
+        int DIV_COST = 20;
+        int ADD_COST = 1;
+        int SUB_COST = 1;
+        int MUL_COST = 3;
+        int ZEXT_COST = 1;
+        int TRUNC_COST = 1;
+        
         // estraggo i tipi e definisco il contesto LLVM in cui verranno registrati o prelevati i nuovi tipi int a 64 bit
         unsigned BitWidth = type->getIntegerBitWidth();
         LLVMContext &Ctx = type->getContext();
@@ -106,63 +103,47 @@ namespace
 
         // Cacolo il Magic number con l'apposito oggetto
         UnsignedDivisionByConstantInfo Magici = UnsignedDivisionByConstantInfo::get(Divisor);
-        Type *WideTy = IntegerType::get(Ctx, BitWidth * 2);
 
-        // creo l'oggetto TCK_RecipThroughput che rappresenta il reciproco del throughtput (e quindi le unità di tempo per ciascuna istruzione)
-        auto RecipThroughput = TargetTransformInfo::TCK_RecipThroughput;
-
-        // calcolo il CPI della divisione nel CFG, usando il tipo originale degli operandi
-        InstructionCost DivCost = TTI.getArithmeticInstrCost(Instruction::SDiv, type, RecipThroughput);
-
-        // calcolo il costo della fase di "moliplicazione ed estensione" della magic division
-        // questa include: 2 estensioni a 64 bit (Zext di X e del magic M) + 1 MUL a 64 bit + 1 shift Right di 32 bit (preparazione al trunc) + 1 trunc a int 32 
-        InstructionCost ReplaceCost = TTI.getCastInstrCost(Instruction::ZExt, WideTy, type, TTI::CastContextHint::None, RecipThroughput) * 2 
-                                    + TTI.getArithmeticInstrCost(Instruction::Mul,  WideTy, RecipThroughput) 
-                                    + TTI.getArithmeticInstrCost(Instruction::LShr, WideTy, RecipThroughput) 
-                                    + TTI.getCastInstrCost(Instruction::Trunc, type, WideTy, TTI::CastContextHint::None, RecipThroughput);
-
-        // aggiungo eventuali costi aggiuntivi legati alla fase di preshift (1 shift right a int 32 bit)
-        if (Magici.PreShift > 0)
-            ReplaceCost += TTI.getArithmeticInstrCost(Instruction::LShr, type, RecipThroughput);
+       // calcolo il costo relativo alla fase di moltiplicazione:
+       // 2 Zext, 1 mul, 1 shift e 1 troncamento
+        int ReplaceCost = 2*ZEXT_COST + MUL_COST + SHIFT_COST + TRUNC_COST;
         
-        // aggiungo eventuali costi legati alla fase di inAdd: 1 sottrazione a int 32 bit + 1 shift right a int 32 bit + 1 SUM a int 32 bit
+        // aggiungo eventuali costi legati alla fase di pre-shift: 1 shift 
+        if (Magici.PreShift > 0)
+            ReplaceCost += SHIFT_COST;
+        
+        // aggiungo eventuali costi legati alla fase di inAdd: 1 sub, 1 shift, 1 add
         if (Magici.IsAdd){
-            ReplaceCost += TTI.getArithmeticInstrCost(Instruction::Sub, type, RecipThroughput)
-                        + TTI.getArithmeticInstrCost(Instruction::LShr, type, RecipThroughput)
-                        + TTI.getArithmeticInstrCost(Instruction::Add, type, RecipThroughput);
+            ReplaceCost += SUB_COST + SHIFT_COST + ADD_COST;
         }
 
-        // aggiungo eventuali costi aggiuntivi legati alla fase di post-shift (1 shift right di int a 32 bit)
+        // aggiungo eventuali costi aggiuntivi legati alla fase di post-shift (1 shift)
         if (Magici.PostShift > 0)
-            ReplaceCost += TTI.getArithmeticInstrCost(Instruction::LShr, type, RecipThroughput);
+            ReplaceCost += SHIFT_COST;
         
 
         // ritorno il confronto fra il costo della divisione e della magic division
-        errs() << "Costo originale " << DivCost << "\n";
+        errs() << "Costo originale " << DIV_COST << "\n";
         errs() << "Costo replace " << ReplaceCost << "\n";
-        return ReplaceCost < DivCost;
+        return ReplaceCost < DIV_COST;
     }
 
     /*
         Funzione che verifica la profitability della somma di shift come sostituzione della mul (non potenza di 2).
-        Come nel caso della divProfitability, si utilizza l'analisi TargetTransformInfo per poter ottenere informazioni 
-        riguardanti i costi in termini di CPI di ciascuna istruzione aritmetica che andrebbe a sostituire la mul.
+        Come nel caso del calcolo della profitability della magic division, supponiamo che i costi in termini di CPI
+        di ciascuna operazione siano noti.
 
-        Si utilizza inoltre l'oggetto TCK_RecipThroughput per poter calcolare il CPI di ciascuna istruzione.
-        Questo oggetto rappresenta l'inverso del throughtput, rappresentando quindi il tempo necessario per poter eseguire
-        una specifica istruzione.
-        Attraverso il richiamo della funzione getArithmeticInstrCost e passando il reciproco del throughtput come 
-        parametro per il calcolo, si riesce ad ottenere il costo di esecuzione di ciascuna istruzione, che viene nello specifico 
-        rappresentato da LLVM come CPI (cycles per instruction).
+        Per verificare la profitability si calcolano iterativamente il numero di shift e di add che dovrebbero sostituire la
+        moltiplicazione (nello stesso modo delal funzione sommaShift).
 
-        In questa funzione si pre-calcolano tutte le shift e tutte le add che si otterrebbero nel caso di una sotituzione, seguendo
-        lo stesso approcccio iterativo applicato nella funzione sommaShift, ma calcolando solo il numero di istruzioni che si otterrebbero
-        dalla sostituzione.
-
-        Si calcola così il costo totale del codice sostituito come costoAdd * numeroAdd + costoShift * numeroShift e lo si confronta 
-        con il costo della MUl originale.
+        Si calcola poi il costo completo come (ADD_COST * numAdd) + (SHIFT_COST * numShift) e lo si confronta con il costo della mul
     */
-    bool mulProfitability(ConstantInt *constantValue, Type *type, TargetTransformInfo &TTI){
+    bool mulProfitability(ConstantInt *constantValue){
+        // Assumiamo dei costi (in termini di CPI) delle operazioni di base.
+        int SHIFT_COST = 1;
+        int ADD_COST = 1;
+        int MUL_COST = 3;
+
         // estraggo il valore numerico del valore costante
         auto number = constantValue->getZExtValue();
         int numShift = 0; // contiene il numero di shift
@@ -185,25 +166,13 @@ namespace
         if(number&1)
             numAdd++;
 
-        // ottengo il reciproco del throughtput --> unità di tempo per poter eseguire una singola istruzione
-        auto RecipThroughput = TargetTransformInfo::TCK_RecipThroughput;
-
-        // calcolo i CPI della mul originale
-        InstructionCost MulCost = TTI.getArithmeticInstrCost(Instruction::Mul, type, RecipThroughput);
-
-        // calcolo i CPI della shift 
-        InstructionCost shiftCost = TTI.getArithmeticInstrCost(Instruction::Shl, type, RecipThroughput);
-
-        // calcolo i CPI della add
-        InstructionCost addCost = TTI.getArithmeticInstrCost(Instruction::Add, type, RecipThroughput);
-
-        // calcolo i CPI totali della sostituzione 
-        InstructionCost replaceCost = (shiftCost * numShift) + (addCost * numAdd);
+       
+        int replaceCost = (SHIFT_COST * numShift) + (ADD_COST * numAdd);
 
         // verifico se ne traggo profitto
-        errs() << "Costo originale " << MulCost << "\n";
+        errs() << "Costo originale " << MUL_COST << "\n";
         errs() << "Costo replace " << replaceCost << "\n";
-        return replaceCost < MulCost;
+        return replaceCost < MUL_COST;
     }
 
     /*
@@ -392,7 +361,6 @@ namespace
         PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM)
         {
 
-            auto &TTI = AM.getResult<TargetIRAnalysis>(F);
 
             // Scorro su tutti i BasciBlock
             for (auto bb_i = F.begin(); bb_i != F.end(); ++bb_i)
@@ -467,16 +435,18 @@ namespace
                             else // se invece non è una potenza di due gestisco separataemnte i casi in base al tipo di operazione
                             {
                                 if (BinOp->getOpcode() == Instruction::SDiv){ // per la divisione creo il calcolo con il magic number
-                                    if (!divProfitability(constantValue, registerOperand->getType(), TTI)){
+                                    if (!divProfitability(constantValue, registerOperand->getType())){
                                         errs() << "Non conviene ottimizzare la div: " << *BinOp <<"\n\n";
                                         continue;
                                     }
+                                    errs() << "Conviene ottimizzare la div: " << *BinOp <<"\n\n";
                                     magicDiv(BinOp, constantValue, registerOperand);
                                 }else{ // per la moltiplicazione calcolo la somma di shift
-                                    if (!mulProfitability(constantValue, registerOperand->getType(), TTI)){
+                                    if (!mulProfitability(constantValue)){
                                         errs() << "Non conviene ottimizzare la mul: " << *BinOp <<"\n\n";
                                         continue;
                                     }
+                                    errs() << "Conviene ottimizzare la mul: " << *BinOp <<"\n\n";
                                     sommaShift(BinOp, constantValue, registerOperand);
                                 }
                                 toDelete.push_back(BinOp);
