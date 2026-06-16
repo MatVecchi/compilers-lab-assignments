@@ -8,6 +8,7 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/Support/DivisionByConstantInfo.h"
+#include "llvm/Analysis/TargetTransformInfo.h"
 #include <iostream>
 #include <string>
 #include <unordered_map>
@@ -72,6 +73,140 @@ namespace
     }
 
     /*
+        Funzione che, presa in input una operazione di divisione, verifica se l'applicazione dell'algoritmo di Magic 
+        Number division porta un profitto in termini di CPI.
+
+        Per poter eseguire questo calcolo viene utilizzata l'analisi TargetTransformInfo che permette di poter fonrire 
+        informazioni riguardo al throughput e al costo in termini di CPI di ciascuna istruzione presente all'interno del 
+        CFG basandosi sui tipi di dato che vengono usati dai suoi operandi.
+
+        Viene infatti instanziato l'oggetto: TCK_RecipThroughput che rappresenta il reciproco del throughtput.
+        Il throughtput è calcolato come il numero di istruzioni che vengono eseguite per unità di tempo.
+        Calcolare il reciproco del throughtput significa poter ottenere l'unità di tempo necessaria per poter eseguire
+        una singola istruzione --> dalla quale si può effettivamente calcolare il costo di una singola istruzione
+
+        Applicando infatti l'istruzione get<tipo istruzione>Cost si riesce ad ottenere un oggetto di tipo
+        InstructionCost che rappresenta il costo in termini di Cycles per instruction della istruzione analizzata.
+
+
+        per poter verificare se la magic division porta profit in termini di CPI, si verifica se il costo in termini della
+        Divisione è maggiore o minore della somma dei costi di tutte le istruzioni che vengono eseguite dall'algoritmo di magic division.
+        Includendo anche le situazioni di pre-shift, in-add e post-shift.
+        
+    */
+    bool divProfitability(ConstantInt *constantValue, Type *type, TargetTransformInfo &TTI){
+        // estraggo i tipi e definisco il contesto LLVM in cui verranno registrati o prelevati i nuovi tipi int a 64 bit
+        unsigned BitWidth = type->getIntegerBitWidth();
+        LLVMContext &Ctx = type->getContext();
+
+        // estraggo il valore costante del divisore
+        auto dValue = constantValue->getZExtValue();
+        // Creo l'apposito oggetto Divisor, utilizzato per calcolare il Magic number
+        APInt Divisor(BitWidth, dValue);
+
+        // Cacolo il Magic number con l'apposito oggetto
+        UnsignedDivisionByConstantInfo Magici = UnsignedDivisionByConstantInfo::get(Divisor);
+        Type *WideTy = IntegerType::get(Ctx, BitWidth * 2);
+
+        // creo l'oggetto TCK_RecipThroughput che rappresenta il reciproco del throughtput (e quindi le unità di tempo per ciascuna istruzione)
+        auto RecipThroughput = TargetTransformInfo::TCK_RecipThroughput;
+
+        // calcolo il CPI della divisione nel CFG, usando il tipo originale degli operandi
+        InstructionCost DivCost = TTI.getArithmeticInstrCost(Instruction::SDiv, type, RecipThroughput);
+
+        // calcolo il costo della fase di "moliplicazione ed estensione" della magic division
+        // questa include: 2 estensioni a 64 bit (Zext di X e del magic M) + 1 MUL a 64 bit + 1 shift Right di 32 bit (preparazione al trunc) + 1 trunc a int 32 
+        InstructionCost ReplaceCost = TTI.getCastInstrCost(Instruction::ZExt, WideTy, type, TTI::CastContextHint::None, RecipThroughput) * 2 
+                                    + TTI.getArithmeticInstrCost(Instruction::Mul,  WideTy, RecipThroughput) 
+                                    + TTI.getArithmeticInstrCost(Instruction::LShr, WideTy, RecipThroughput) 
+                                    + TTI.getCastInstrCost(Instruction::Trunc, type, WideTy, TTI::CastContextHint::None, RecipThroughput);
+
+        // aggiungo eventuali costi aggiuntivi legati alla fase di preshift (1 shift right a int 32 bit)
+        if (Magici.PreShift > 0)
+            ReplaceCost += TTI.getArithmeticInstrCost(Instruction::LShr, type, RecipThroughput);
+        
+        // aggiungo eventuali costi legati alla fase di inAdd: 1 sottrazione a int 32 bit + 1 shift right a int 32 bit + 1 SUM a int 32 bit
+        if (Magici.IsAdd){
+            ReplaceCost += TTI.getArithmeticInstrCost(Instruction::Sub, type, RecipThroughput)
+                        + TTI.getArithmeticInstrCost(Instruction::LShr, type, RecipThroughput)
+                        + TTI.getArithmeticInstrCost(Instruction::Add, type, RecipThroughput);
+        }
+
+        // aggiungo eventuali costi aggiuntivi legati alla fase di post-shift (1 shift right di int a 32 bit)
+        if (Magici.PostShift > 0)
+            ReplaceCost += TTI.getArithmeticInstrCost(Instruction::LShr, type, RecipThroughput);
+        
+
+        // ritorno il confronto fra il costo della divisione e della magic division
+        errs() << "Costo originale " << DivCost << "\n";
+        errs() << "Costo replace " << ReplaceCost << "\n";
+        return ReplaceCost < DivCost;
+    }
+
+    /*
+        Funzione che verifica la profitability della somma di shift come sostituzione della mul (non potenza di 2).
+        Come nel caso della divProfitability, si utilizza l'analisi TargetTransformInfo per poter ottenere informazioni 
+        riguardanti i costi in termini di CPI di ciascuna istruzione aritmetica che andrebbe a sostituire la mul.
+
+        Si utilizza inoltre l'oggetto TCK_RecipThroughput per poter calcolare il CPI di ciascuna istruzione.
+        Questo oggetto rappresenta l'inverso del throughtput, rappresentando quindi il tempo necessario per poter eseguire
+        una specifica istruzione.
+        Attraverso il richiamo della funzione getArithmeticInstrCost e passando il reciproco del throughtput come 
+        parametro per il calcolo, si riesce ad ottenere il costo di esecuzione di ciascuna istruzione, che viene nello specifico 
+        rappresentato da LLVM come CPI (cycles per instruction).
+
+        In questa funzione si pre-calcolano tutte le shift e tutte le add che si otterrebbero nel caso di una sotituzione, seguendo
+        lo stesso approcccio iterativo applicato nella funzione sommaShift, ma calcolando solo il numero di istruzioni che si otterrebbero
+        dalla sostituzione.
+
+        Si calcola così il costo totale del codice sostituito come costoAdd * numeroAdd + costoShift * numeroShift e lo si confronta 
+        con il costo della MUl originale.
+    */
+    bool mulProfitability(ConstantInt *constantValue, Type *type, TargetTransformInfo &TTI){
+        // estraggo il valore numerico del valore costante
+        auto number = constantValue->getZExtValue();
+        int numShift = 0; // contiene il numero di shift
+        int numAdd = 0; // contiene il numero di add
+        bool firstShift = true;
+
+        // scorro iterativamente i bit del numero, e se il bit =1, significa che devo aggiungere una shift (e una relativa add)
+        // le conto iterativamente
+        for (unsigned i = 1; i < constantValue->getType()->getIntegerBitWidth(); ++i){
+            if((number >> i) & 1){
+                numShift++;
+                if(!firstShift)
+                    numAdd++;
+                else
+                    firstShift = false;
+            }
+        }
+
+        // conto separatamente il caso del primo bit dove non è necessaria la shift
+        if(number&1)
+            numAdd++;
+
+        // ottengo il reciproco del throughtput --> unità di tempo per poter eseguire una singola istruzione
+        auto RecipThroughput = TargetTransformInfo::TCK_RecipThroughput;
+
+        // calcolo i CPI della mul originale
+        InstructionCost MulCost = TTI.getArithmeticInstrCost(Instruction::Mul, type, RecipThroughput);
+
+        // calcolo i CPI della shift 
+        InstructionCost shiftCost = TTI.getArithmeticInstrCost(Instruction::Shl, type, RecipThroughput);
+
+        // calcolo i CPI della add
+        InstructionCost addCost = TTI.getArithmeticInstrCost(Instruction::Add, type, RecipThroughput);
+
+        // calcolo i CPI totali della sostituzione 
+        InstructionCost replaceCost = (shiftCost * numShift) + (addCost * numAdd);
+
+        // verifico se ne traggo profitto
+        errs() << "Costo originale " << MulCost << "\n";
+        errs() << "Costo replace " << replaceCost << "\n";
+        return replaceCost < MulCost;
+    }
+
+    /*
         Magic division è una divisione che viene utilizzata per divisioni non con potenze di 2.
        L'idea della divisione è poter utilizzare un valore costante M tale per cui trasformare la divisone in:
        quoziente =  (x * M) / 2^k
@@ -117,7 +252,7 @@ namespace
         unsigned BitWidth = registerType->getIntegerBitWidth(); // numero di bit del registro
         LLVMContext &Ctx = registerType->getContext();          // contesto: oggetto in cui sono salvati i tipi LLVM
 
-        // estendo il valore del divisore a 64 bit per aumentare la precisione (estendo con zeri in testa: unsigned)
+        
         auto dValue = constantValue->getZExtValue();
         // Creo l'apposito oggetto Divisor, utilizzato per calcolare il Magic number
         APInt Divisor(BitWidth, dValue);
@@ -254,8 +389,10 @@ namespace
     {
         // Main entry point, takes IR unit to run the pass on (&F) and the
         // corresponding pass manager (to be queried if need be)
-        PreservedAnalyses run(Function &F, FunctionAnalysisManager &)
+        PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM)
         {
+
+            auto &TTI = AM.getResult<TargetIRAnalysis>(F);
 
             // Scorro su tutti i BasciBlock
             for (auto bb_i = F.begin(); bb_i != F.end(); ++bb_i)
@@ -329,10 +466,19 @@ namespace
                             }
                             else // se invece non è una potenza di due gestisco separataemnte i casi in base al tipo di operazione
                             {
-                                if (BinOp->getOpcode() == Instruction::SDiv) // per la divisione creo il calcolo con il magic number
+                                if (BinOp->getOpcode() == Instruction::SDiv){ // per la divisione creo il calcolo con il magic number
+                                    if (!divProfitability(constantValue, registerOperand->getType(), TTI)){
+                                        errs() << "Non conviene ottimizzare la div: " << *BinOp <<"\n\n";
+                                        continue;
+                                    }
                                     magicDiv(BinOp, constantValue, registerOperand);
-                                else // per la moltiplicazione calcolo la somma di shift
+                                }else{ // per la moltiplicazione calcolo la somma di shift
+                                    if (!mulProfitability(constantValue, registerOperand->getType(), TTI)){
+                                        errs() << "Non conviene ottimizzare la mul: " << *BinOp <<"\n\n";
+                                        continue;
+                                    }
                                     sommaShift(BinOp, constantValue, registerOperand);
+                                }
                                 toDelete.push_back(BinOp);
                             }
                         }
